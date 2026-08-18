@@ -1,354 +1,495 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
-import { AnimatePresence } from 'framer-motion'
-import confetti from 'canvas-confetti'
+import { useEffect, useRef, useState, use } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { Room, Question, Post } from '@/types/database'
-import { PostItCard } from '@/components/PostItCard'
-import { PostItModal } from '@/components/PostItModal'
+import { RealtimePostgresInsertPayload, RealtimePostgresUpdatePayload } from '@supabase/supabase-js'
 
-export default function HostMainPage() {
-  const params = useParams()
-  const roomId = params?.roomId as string
+// 타입 정의
+interface Room {
+  id: string
+  room_code: string
+  status: 'WAITING' | 'IN_PROGRESS' | 'COMPLETED'
+  template_id?: string | null
+  current_question_id?: string | null
+}
+
+interface Question {
+  id: string
+  template_id?: string | null
+  title: string
+  subtitle?: string | null
+  step_order: number
+}
+
+interface Post {
+  id: string
+  room_id: string
+  question_id: string
+  author_name: string | null
+  content: string
+  image_url?: string | null
+  color?: string | null
+  is_selected?: boolean
+  created_at: string
+}
+
+export default function HostRoomPage({ params }: { params: Promise<{ roomId: string }> }) {
+  // Next.js 15 App Router params Unwrapping
+  const { roomId } = use(params)
   const supabase = createClient()
 
+  // 상태 관리
   const [room, setRoom] = useState<Room | null>(null)
-  const [question, setQuestion] = useState<Question | null>(null)
+  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
-  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isStarting, setIsStarting] = useState(false)
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null) // 지목/선택 팝업용
 
-  // 모달 상태 관리
-  const [selectedPost, setSelectedPost] = useState<Post | null>(null)
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
-  const [showNextQuestionModal, setShowNextQuestionModal] = useState<boolean>(false)
+  // realtime 콜백 안에서 최신 질문 id를 참조하기 위한 ref
+  const currentQuestionIdRef = useRef<string | null>(null)
 
-  // [추가] 지목 처리 중 버튼 연타로 인한 race condition 방지용 플래그
-  const [isPicking, setIsPicking] = useState<boolean>(false)
-
-  // 1. 초기 데이터 (방, 질문, 포스트잇) 조회
-  const fetchRoomAndData = async () => {
-    if (!roomId) return
-
-    // 방 조회
-    const { data: roomData, error: roomError } = await supabase
-      .from('rooms')
+  // 특정 질문(questionId)에 해당하는 포스트잇만 불러와 posts state를 교체
+  const loadPostsForQuestion = async (questionId: string | null) => {
+    if (!questionId) {
+      setPosts([])
+      return
+    }
+    const { data: postsData } = await supabase
+      .from('posts')
       .select('*')
-      .eq('id', roomId)
-      .maybeSingle()
+      .eq('room_id', roomId)
+      .eq('question_id', questionId)
+      .order('created_at', { ascending: true })
 
-    // [추가] 방 조회 실패 시 무한 로딩 대신 에러 상태 노출
-    if (roomError) {
-      console.error('방 조회 오류:', roomError)
-      setFetchError('모임 정보를 불러오는 중 오류가 발생했습니다.')
+    setPosts(postsData || [])
+  }
+
+  // 질문 정보 + 그 질문에 해당하는 포스트잇을 함께 갱신
+  const loadQuestionAndPosts = async (questionId: string | null) => {
+    currentQuestionIdRef.current = questionId
+
+    if (!questionId) {
+      setCurrentQuestion(null)
+      setPosts([])
       return
     }
 
-    if (roomData) {
-      setFetchError(null)
-      setRoom(roomData)
+    const { data: questionData } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('id', questionId)
+      .single()
 
-      // 현재 질문 조회
-      if (roomData.current_question_id) {
-        const { data: questionData } = await supabase
-          .from('questions')
-          .select('*')
-          .eq('id', roomData.current_question_id)
-          .maybeSingle()
-
-        setQuestion(questionData)
-
-        // 질문에 해당하는 포스트잇 목록 조회
-        const { data: postsData } = await supabase
-          .from('posts')
-          .select('*')
-          .eq('room_id', roomData.id)
-          .eq('question_id', roomData.current_question_id)
-          .order('created_at', { ascending: true })
-
-        if (postsData) {
-          setPosts(postsData)
-        }
-      } else {
-        // 질문이 아직 지정되지 않은 방 (템플릿 없이 생성된 경우 등)
-        setQuestion(null)
-        setPosts([])
-      }
-    } else {
-      setFetchError('존재하지 않는 방입니다.')
-    }
+    setCurrentQuestion(questionData || null)
+    await loadPostsForQuestion(questionId)
   }
 
-  // 2. 초기 로드 및 포스트잇 Realtime 동기화
+  // 1. 방 데이터 및 질문/포스트잇 초기 로드
   useEffect(() => {
-    fetchRoomAndData()
+    const fetchRoomData = async () => {
+      try {
+        const { data: roomData, error: roomError } = await supabase
+          .from('rooms')
+          .select('*')
+          .eq('id', roomId)
+          .single()
 
-    // Realtime 구독 (참가자가 포스트잇을 제출/수정/삭제 시 실시간 감지)
-    const channel = supabase
-      .channel(`host-posts-${roomId}`)
+        if (roomError) throw roomError
+        setRoom(roomData)
+
+        await loadQuestionAndPosts(roomData.current_question_id ?? null)
+      } catch (err) {
+        console.error('데이터 로드 실패:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchRoomData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId])
+
+  // 2. Realtime 구독 (포스트잇 실시간 수신 및 방 상태 변경 감지)
+  useEffect(() => {
+    // 포스트잇 생성 구독
+    const postsChannel = supabase
+      .channel(`realtime-posts-${roomId}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'posts',
-          filter: `room_id=eq.${roomId}`,
-        },
-        () => {
-          // 실시간 변경 발생 시 포스트잇 목록 다시 불러오기
-          fetchRoomAndData()
+        { event: 'INSERT', schema: 'public', table: 'posts', filter: `room_id=eq.${roomId}` },
+        (payload: RealtimePostgresInsertPayload<Post>) => {
+          const newPost = payload.new as Post
+          if (newPost.question_id !== currentQuestionIdRef.current) return
+          setPosts((prev) => [...prev, newPost])
+        }
+      )
+      .subscribe()
+
+    // 방 상태 변경 구독
+    const roomChannel = supabase
+      .channel(`realtime-room-${roomId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
+        async (payload: RealtimePostgresUpdatePayload<Room>) => {
+          const updatedRoom = payload.new as Room // [수정] 타입 단열 추가
+          setRoom(updatedRoom)
+
+          if (updatedRoom.current_question_id !== currentQuestionIdRef.current) {
+            await loadQuestionAndPosts(updatedRoom.current_question_id ?? null)
+          }
         }
       )
       .subscribe()
 
     return () => {
-      supabase.removeChannel(channel)
+      supabase.removeChannel(postsChannel)
+      supabase.removeChannel(roomChannel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
 
-  // 3. 비복원 무작위 포스트잇 지목
-  // [수정] PostItModal의 onNext에도 그대로 재사용됨:
-  //  - 모달이 열려있는 상태에서 호출되면 → 남은 포스트잇 중 다음 1개를 뽑아 모달 내용을 교체
-  //  - 남은 포스트잇이 0개면 → 모달을 닫고 완료 안내 모달 오픈
-  const handlePickRandomPost = async () => {
-    if (isPicking) return // 연타 방지
+  // 3. 나눔 시작하기 클릭 처리
+  const handleStartSharing = async () => {
+    if (isStarting || !room) return
+    setIsStarting(true)
 
-    const unselectedPosts = posts.filter((p) => !p.is_selected)
+    try {
+      if (!room.template_id) {
+        alert('이 방에 연결된 템플릿이 없습니다. 관리자 페이지에서 템플릿을 먼저 지정해주세요.')
+        return
+      }
 
-    // 미지목 인원이 없으면 폭죽 및 다음 질문 안내
-    if (unselectedPosts.length === 0) {
-      confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } })
-      setIsModalOpen(false)
-      setShowNextQuestionModal(true)
-      return
+      const { data: questions } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('template_id', room.template_id)
+        .order('step_order', { ascending: true })
+        .limit(1)
+
+      const firstQuestionId = questions?.[0]?.id
+      if (!firstQuestionId) {
+        alert('연결된 템플릿에 등록된 질문이 없습니다. 관리자 페이지에서 질문을 먼저 추가해주세요.')
+        return
+      }
+
+      const { error } = await supabase
+        .from('rooms')
+        .update({
+          status: 'IN_PROGRESS',
+          current_question_id: firstQuestionId,
+        })
+        .eq('id', room.id)
+
+      if (error) throw error
+    } catch (err) {
+      console.error('나눔 시작 실패:', err)
+      alert('나눔을 시작하는 중 오류가 발생했습니다.')
+    } finally {
+      setIsStarting(false)
     }
-
-    setIsPicking(true)
-
-    const randomIndex = Math.floor(Math.random() * unselectedPosts.length)
-    const picked = unselectedPosts[randomIndex]
-
-    // DB에 is_selected = true 상태 비동기 업데이트
-    const { error } = await supabase
-      .from('posts')
-      .update({ is_selected: true })
-      .eq('id', picked.id)
-
-    if (error) {
-      console.error('지목 상태 업데이트 실패:', error)
-      alert('랜덤 지목 처리 중 오류가 발생했습니다. 다시 시도해 주세요.')
-      setIsPicking(false)
-      return
-    }
-
-    // 성공 시 로컬 UI 업데이트 및 확대 팝업 오픈/교체
-    setSelectedPost(picked)
-    setIsModalOpen(true)
-    setPosts((prev) =>
-      prev.map((p) => (p.id === picked.id ? { ...p, is_selected: true } : p))
-    )
-    setIsPicking(false)
   }
 
-  // 4. 다음 질문으로 이동 (template_id null 예외 및 COMPLETED 전이 로직 반영)
+  // 4. 다음 질문으로 이동
   const handleGoToNextQuestion = async () => {
-    if (!room || !question) return
+    if (!room || !currentQuestion || !room.template_id) return
 
-    // template_id 유무에 따른 동적 쿼리
-    let query = supabase
+    const { data: nextQuestions } = await supabase
       .from('questions')
       .select('*')
-      .gt('step_order', question.step_order)
-
-    if (room.template_id) {
-      query = query.eq('template_id', room.template_id)
-    }
-
-    const { data: nextQuestions, error } = await query
+      .eq('template_id', room.template_id)
+      .gt('step_order', currentQuestion.step_order)
       .order('step_order', { ascending: true })
       .limit(1)
 
-    if (error) {
-      console.error('다음 질문 조회 오류:', error)
-      alert('다음 질문을 불러오는 중 오류가 발생했습니다.')
+    const nextQuestion = nextQuestions?.[0]
+
+    if (!nextQuestion) {
+      alert('모든 나눔 질문이 끝났습니다!')
+      await supabase.from('rooms').update({ status: 'COMPLETED' }).eq('id', room.id)
       return
     }
 
-    if (nextQuestions && nextQuestions.length > 0) {
-      const nextQ = nextQuestions[0]
+    const { error } = await supabase
+      .from('rooms')
+      .update({ current_question_id: nextQuestion.id })
+      .eq('id', room.id)
 
-      // Room의 current_question_id 업데이트
-      await supabase
-        .from('rooms')
-        .update({ current_question_id: nextQ.id })
-        .eq('id', room.id)
-
-      setQuestion(nextQ)
-      setShowNextQuestionModal(false)
-      setPosts([])
-    } else {
-      // 다음 질문이 더 이상 없을 경우 방 상태를 COMPLETED로 변경
-      await supabase
-        .from('rooms')
-        .update({ status: 'COMPLETED' })
-        .eq('id', room.id)
-
-      setRoom((prev) => (prev ? { ...prev, status: 'COMPLETED' } : null))
-      alert('모든 나눔 질문이 끝났습니다! 모임이 종료되었습니다 🎉')
-      setShowNextQuestionModal(false)
+    if (error) {
+      console.error('다음 질문 이동 실패:', error)
+      alert('다음 질문으로 넘어가는 중 오류가 발생했습니다.')
     }
   }
 
-  if (fetchError) {
+  // 5. [랜덤 뽑기] 비복원 추출
+  const handleRandomPick = async () => {
+    const unselected = posts.filter((p) => !p.is_selected)
+
+    if (unselected.length === 0) {
+      if (posts.length === 0) {
+        alert('아직 제출된 포스트잇이 없습니다!')
+      } else {
+        alert('이번 질문에서 모든 인원이 지목되었습니다. 다음 질문으로 넘어가 보세요!')
+      }
+      return
+    }
+
+    const randomIndex = Math.floor(Math.random() * unselected.length)
+    const picked = unselected[randomIndex]
+
+    setSelectedPost(picked)
+    setPosts((prev) => prev.map((p) => (p.id === picked.id ? { ...p, is_selected: true } : p)))
+
+    const { error } = await supabase.from('posts').update({ is_selected: true }).eq('id', picked.id)
+    if (error) {
+      console.error('지목 상태 저장 실패:', error)
+    }
+  }
+
+  if (isLoading) {
     return (
-      <main className="min-h-screen bg-amber-50 flex flex-col items-center justify-center p-6 text-center gap-2">
-        <p className="text-slate-700 font-bold">{fetchError}</p>
-        <button
-          onClick={fetchRoomAndData}
-          className="mt-2 px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-bold"
-        >
-          다시 시도
-        </button>
-      </main>
+      <div className="min-h-screen bg-violet-50/40 flex items-center justify-center">
+        <div className="text-purple-900 font-bold text-lg animate-pulse">
+          나눔 방 정보를 불러오는 중...
+        </div>
+      </div>
     )
   }
 
-  if (!room) {
-    return (
-      <main className="min-h-screen bg-amber-50 flex items-center justify-center p-6 text-slate-600">
-        <p className="animate-pulse">모임 진행 화면을 불러오는 중입니다...</p>
-      </main>
-    )
-  }
-
-  // [수정] 그리드에는 아직 지목되지 않은 포스트잇만 노출
-  // (지목된 카드는 PostItCard 자체에서도 방어적으로 투명화되지만,
-  //  AnimatePresence + filter로 실제 DOM에서도 완전히 제거되도록 함)
-  const visiblePosts = posts.filter((p) => !p.is_selected)
-  const selectedCount = posts.filter((p) => p.is_selected).length
+  const joinUrl = typeof window !== 'undefined' ? `${window.location.origin}/p/${room?.room_code}` : ''
+  const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(joinUrl)}`
 
   return (
-    <main className="min-h-screen bg-amber-50/40 p-6 flex flex-col text-slate-800">
-      {/* 상단 헤더 영역 */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between bg-white p-6 rounded-3xl shadow-sm border border-amber-200/80 gap-4 mb-8">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="bg-amber-100 text-amber-900 text-xs font-bold px-2.5 py-0.5 rounded-full">
-              방 코드: {room.room_code}
-            </span>
-            {room.status === 'COMPLETED' && (
-              <span className="bg-slate-200 text-slate-700 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                모임 종료됨
-              </span>
-            )}
-          </div>
-          <h1 className="text-2xl font-black text-amber-950 mt-1">
-            {question?.title || '질문을 불러오는 중입니다...'}
-          </h1>
-          {question?.subtitle && (
-            <p className="text-xs text-slate-500 mt-0.5">{question.subtitle}</p>
-          )}
-        </div>
+    <>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Gamja+Flower&display=swap"
+        rel="stylesheet"
+      />
 
-        {/* 액션 버튼 그룹 */}
-        {/* [수정] 명세서 4단계는 "모든 포스트잇 지목 완료 시 자동으로 안내 모달 출현"만 규정함.
-            기존엔 진행자가 아무 때나 누를 수 있는 별도의 "다음 질문으로 ➔" 수동 버튼이 있어
-            지목이 끝나지 않은 상태에서도 질문을 넘겨버릴 수 있는 스펙 밖 동작이었음.
-            → 자동 트리거([나눔 시작]/[다음 사람 지목] 진행 중 자연스럽게 뜨는 안내 모달)만 남기고
-              수동 버튼은 제거. (필요하다면 진행자용 "강제 건너뛰기"는 별도 확인 절차를 거쳐
-              명세서에 새 항목으로 추가하는 걸 권장.) */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handlePickRandomPost}
-            disabled={posts.length === 0 || room.status === 'COMPLETED' || isPicking}
-            className="py-3 px-6 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-bold rounded-2xl shadow-md transition-all disabled:opacity-40 text-base"
-          >
-            🎲 나눔 시작
-          </button>
-        </div>
-      </header>
+      <main className="min-h-screen bg-violet-50/30 text-slate-800 p-6 sm:p-10 lg:p-16 flex flex-col justify-center relative overflow-hidden">
+        {/* ==================== [대기 화면: STATUS === 'WAITING'] ==================== */}
+        {room?.status === 'WAITING' ? (
+          <div className="max-w-6xl w-full mx-auto my-auto grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+            {/* 1. [좌측 영역] QR 코드 */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', bounce: 0.3 }}
+              className="flex flex-col items-center justify-center space-y-4 p-4"
+            >
+              <div className="p-4 bg-purple-100/60 rounded-3xl border border-purple-200/60 shadow-sm backdrop-blur-sm">
+                <img
+                  src={qrApiUrl}
+                  alt="모임 접속 QR 코드"
+                  className="w-64 h-64 sm:w-72 sm:h-72 lg:w-80 lg:h-80 object-contain rounded-2xl"
+                />
+              </div>
+              <p className="text-xs sm:text-sm text-slate-400 font-medium font-mono break-all text-center max-w-sm">
+                {joinUrl}
+              </p>
+            </motion.div>
 
-      {/* 실시간 제출된 포스트잇 그리드 영역 */}
-      <section className="flex-1">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-bold text-slate-600">
-            실시간 나눔 카드 ({posts.length}개 제출됨)
-          </h2>
-          <span className="text-xs text-slate-400">
-            지목 완료: {selectedCount} / {posts.length}
-          </span>
-        </div>
+            {/* 2. [우측 영역] 카드 */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.1, type: 'spring', bounce: 0.35 }}
+              className="bg-white/90 backdrop-blur-md p-8 sm:p-10 rounded-[2.5rem] border border-purple-100 shadow-2xl shadow-purple-100/80 flex flex-col items-center text-center justify-between space-y-8"
+            >
+              <div className="flex flex-col items-center space-y-2 w-full">
+                <span className="text-sm sm:text-base uppercase tracking-wider text-purple-900 bg-purple-100 px-4 py-1.5 rounded-full border border-purple-200/80 [font-family:'Gamja_Flower',sans-serif]">
+                  모임 참여 코드
+                </span>
+                <h1 className="text-6xl sm:text-7xl lg:text-8xl font-black text-purple-900 font-mono tracking-wider drop-shadow-sm text-center">
+                  {room?.room_code}
+                </h1>
+              </div>
 
-        {posts.length === 0 ? (
-          <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed border-amber-200 rounded-3xl text-center space-y-2">
-            <div className="text-4xl animate-bounce">📝</div>
-            <p className="text-sm font-bold text-amber-900">
-              참가자들의 나눔 포스트잇을 기다리고 있습니다
-            </p>
-            <p className="text-xs text-slate-400">
-              모바일로 접속하여 첫 번째 나눔을 제출해 보세요!
-            </p>
+              <div className="border-t border-dashed border-purple-100 my-2 w-full" />
+
+              <div className="flex flex-col items-center space-y-5 w-full">
+                <p className="text-sm sm:text-base font-semibold text-slate-600 text-center whitespace-nowrap">
+                  모든 구성원이 접속했다면 나눔을 시작해보세요!
+                </p>
+
+                <motion.button
+                  onClick={handleStartSharing}
+                  disabled={isStarting}
+                  whileHover={{ scale: 1.02, backgroundColor: '#3B0764' }}
+                  whileTap={{ scale: 0.98 }}
+                  className="w-full py-5 bg-purple-900 text-white font-bold rounded-2xl shadow-xl shadow-purple-900/20 transition-all flex items-center justify-center gap-3 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
+                >
+                  <span className="text-2xl sm:text-3xl [font-family:'Gamja_Flower',sans-serif]">
+                    {isStarting ? '나눔 준비 중...' : '🚀 나눔 시작하기'}
+                  </span>
+                </motion.button>
+              </div>
+            </motion.div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {/* [수정] AnimatePresence + filter로 지목된 카드는 그리드에서 완전히 제거됨 */}
-            <AnimatePresence>
-              {visiblePosts.map((post, idx) => (
-                <PostItCard
-                  key={post.id}
-                  post={post}
-                  index={idx}
-                  onClick={() => {
-                    setSelectedPost(post)
-                    setIsModalOpen(true)
-                  }}
-                />
-              ))}
-            </AnimatePresence>
+          /* ==================== [진행 화면: STATUS === 'IN_PROGRESS' / 'COMPLETED'] ==================== */
+          <div className="max-w-7xl w-full mx-auto flex flex-col space-y-8 pt-24 pb-12">
+            {/* 질문 박스 상단 고정 */}
+            <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-md px-6 py-4 border-b border-purple-100 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="max-w-7xl w-full mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-bold bg-purple-100 text-purple-900 px-2.5 py-1 rounded-md">
+                      코드: {room?.room_code}
+                    </span>
+                    <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-md flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      실시간 진행 중
+                    </span>
+                  </div>
+                  <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900">
+                    {currentQuestion?.title || '질문을 불러오는 중입니다...'}
+                  </h2>
+                  {currentQuestion?.subtitle && (
+                    <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
+                      {currentQuestion.subtitle}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {/* [수정] 버튼 텍스트를 '🎲 랜덤 지목'으로 명확히 변경 */}
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleRandomPick}
+                    className="px-6 py-3 bg-purple-900 hover:bg-purple-950 text-white font-bold rounded-2xl shadow-md transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <span className="text-xl sm:text-2xl [font-family:'Gamja_Flower',sans-serif]">
+                      🎲 랜덤 지목
+                    </span>
+                  </motion.button>
+
+                  {/* 다음 질문 버튼 */}
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleGoToNextQuestion}
+                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <span className="text-lg sm:text-xl">➡️ 다음 질문</span>
+                  </motion.button>
+                </div>
+              </div>
+            </header>
+
+            {/* 포스트잇 카드 목록 */}
+            <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 items-start">
+              <AnimatePresence>
+                {posts.map((post, idx) => {
+                  const bgColors = [
+                    'bg-amber-100/90 border-amber-200 text-amber-950',
+                    'bg-rose-100/90 border-rose-200 text-rose-950',
+                    'bg-sky-100/90 border-sky-200 text-sky-950',
+                    'bg-emerald-100/90 border-emerald-200 text-emerald-950',
+                    'bg-purple-100/90 border-purple-200 text-purple-950',
+                  ]
+                  const colorClass = bgColors[idx % bgColors.length]
+                  const rotateDeg = (idx % 2 === 0 ? 1 : -1) * ((idx % 3) + 1)
+
+                  return (
+                    <motion.div
+                      key={post.id}
+                      initial={{ opacity: 0, scale: 0.8, y: 20 }}
+                      animate={{ opacity: 1, scale: 1, rotate: rotateDeg }}
+                      exit={{ opacity: 0, scale: 0.5 }}
+                      transition={{ type: 'spring', bounce: 0.3 }}
+                      className={`p-6 rounded-2xl border shadow-sm flex flex-col justify-between space-y-5 h-auto cursor-pointer hover:shadow-md transition-shadow ${colorClass} ${
+                        post.is_selected ? 'opacity-40' : 'opacity-100'
+                      }`}
+                      onClick={() => setSelectedPost(post)}
+                    >
+                      <div className="flex-1 flex items-center justify-center py-2">
+                        <p className="text-lg sm:text-xl font-bold leading-relaxed whitespace-pre-wrap text-center break-words w-full">
+                          {post.content}
+                        </p>
+                      </div>
+
+                      {post.image_url && (
+                        <div className="w-full">
+                          <img
+                            src={post.image_url}
+                            alt="첨부 사진"
+                            className="w-full h-auto max-h-80 object-contain rounded-xl border border-black/5 bg-black/5"
+                          />
+                        </div>
+                      )}
+
+                      <div className="flex justify-between items-center text-xs font-bold opacity-75 pt-3 border-t border-black/5">
+                        <span>{post.author_name || '익명'}</span>
+                        <span>{new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    </motion.div>
+                  )
+                })}
+              </AnimatePresence>
+            </section>
+
+            {posts.length === 0 && (
+              <div className="text-center py-28 text-slate-400 font-medium">
+                아직 제출된 포스트잇이 없습니다. 모바일에서 작성해보세요!
+              </div>
+            )}
           </div>
         )}
-      </section>
 
-      {/* 지목된 포스트잇 확대 팝업 모달 */}
-      {/* [수정] onNext를 handlePickRandomPost에 연결 → 팝업 안에서 바로 다음 사람 연속 지목 가능
-          (남은 포스트잇 0개가 되는 순간, handlePickRandomPost 내부에서 자동으로
-           완료 안내 모달로 전환됨) */}
-      <AnimatePresence>
-        {isModalOpen && (
-          <PostItModal
-            isOpen={isModalOpen}
-            post={selectedPost}
-            onClose={() => setIsModalOpen(false)}
-            onNext={handlePickRandomPost}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* 다음 질문 전환 확인 모달 */}
-      {/* [수정] 명세서 원문 그대로 문구/버튼명 일치시킴:
-          "모든 사람이 나눔을 완료했습니다! 다음 질문으로 넘어가시겠습니까?" / [넹❤️] */}
-      {showNextQuestionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl">
-            <div className="text-4xl">🎉</div>
-            <h3 className="text-lg font-bold text-slate-800">
-              모든 사람이 나눔을 완료했습니다!
-              <br />
-              다음 질문으로 넘어가시겠습니까?
-            </h3>
-            <div className="pt-2">
-              <button
-                onClick={handleGoToNextQuestion}
-                className="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-base"
+        {/* ==================== [지목 팝업 모달] ==================== */}
+        <AnimatePresence>
+          {selectedPost && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+              onClick={() => setSelectedPost(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.7, y: 30 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.7, y: 30 }}
+                transition={{ type: 'spring', bounce: 0.3 }}
+                className="bg-purple-50 border-2 border-purple-200 p-8 rounded-3xl shadow-2xl max-w-lg w-full text-slate-900 space-y-6 relative"
+                onClick={(e) => e.stopPropagation()}
               >
-                넹❤️
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </main>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold uppercase bg-purple-200 text-purple-900 px-3 py-1 rounded-full [font-family:'Gamja_Flower',sans-serif] text-sm">
+                    🎉 지목된 포스트잇
+                  </span>
+                  <button
+                    onClick={() => setSelectedPost(null)}
+                    className="text-slate-400 hover:text-slate-700 font-bold text-xl cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <p className="text-2xl sm:text-3xl font-bold leading-relaxed whitespace-pre-wrap text-center break-words">
+                  {selectedPost.content}
+                </p>
+
+                {selectedPost.image_url && (
+                  <img
+                    src={selectedPost.image_url}
+                    alt="첨부 이미지"
+                    className="w-full h-auto max-h-80 object-contain rounded-2xl border border-purple-100"
+                  />
+                )}
+
+                <div className="text-right font-bold text-purple-950 text-base">
+                  — {selectedPost.author_name || '익명'}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+    </>
   )
 }
