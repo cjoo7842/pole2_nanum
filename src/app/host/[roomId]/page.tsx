@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, use } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { RealtimePostgresInsertPayload, RealtimePostgresUpdatePayload } from '@supabase/supabase-js'
+import confetti from 'canvas-confetti'
 
 // 타입 정의
 interface Room {
@@ -50,6 +51,15 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
 
   // realtime 콜백 안에서 최신 질문 id를 참조하기 위한 ref
   const currentQuestionIdRef = useRef<string | null>(null)
+
+  // 폭죽 터트리기 함수
+  const fireConfetti = () => {
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 },
+    })
+  }
 
   // 특정 질문(questionId)에 해당하는 포스트잇만 불러와 posts state를 교체
   const loadPostsForQuestion = async (questionId: string | null) => {
@@ -228,7 +238,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     }
   }
 
-  // 5. [랜덤 뽑기] 비복원 추출 (다음 사람 지목 공통 처리)
+  // 5. [랜덤 뽑기] 비복원 추출 (다음 사람 지목 공통 처리) + 폭죽 추가
   const handleRandomPick = async () => {
     const unselected = posts.filter((p) => !p.is_selected)
 
@@ -248,6 +258,9 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
 
     setSelectedPost(picked)
     setPosts((prev) => prev.map((p) => (p.id === picked.id ? { ...p, is_selected: true } : p)))
+
+    // 지목될 때 폭죽 발사!
+    fireConfetti()
 
     const { error } = await supabase.from('posts').update({ is_selected: true }).eq('id', picked.id)
     if (error) {
@@ -373,16 +386,6 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       🎲 랜덤 지목
                     </span>
                   </motion.button>
-
-                  {/* 다음 질문 버튼 */}
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleGoToNextQuestion}
-                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md transition-colors flex items-center gap-2 cursor-pointer"
-                  >
-                    <span className="text-lg sm:text-xl">➡️ 다음 질문</span>
-                  </motion.button>
                 </div>
               </div>
             </header>
@@ -414,6 +417,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       onClick={() => {
                         setSelectedPost(post)
                         setIsAllCompletedModal(false)
+                        fireConfetti() // 카드를 직접 클릭해 띄울 때도 폭죽 발사!
                       }}
                     >
                       <div className="flex-1 flex items-center justify-center py-2">
@@ -511,7 +515,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       animate={{ opacity: 1, scale: 1 }}
                       className="w-full p-4 bg-pink-100/90 border border-pink-200 rounded-2xl flex flex-col items-center space-y-3 text-center"
                     >
-                      <p className="text-base font-bold text-pink-950 [font-family:'Gamja_Flower',sans-serif] text-xl">
+                      <p className="text-base font-bold text-pink-950 [font-family:'Gamja_Flower',sans-serif] text-xl break-keep">
                         모든 사람이 나누었습니다!{'\n'}다음 질문으로 넘어가시겠습니까?
                       </p>
                       <motion.button
