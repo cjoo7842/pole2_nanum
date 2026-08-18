@@ -123,9 +123,9 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
 
-  // 2. Realtime 구독 (포스트잇 실시간 수신 및 방 상태 변경 감지)
+  // 2. Realtime 구독 (포스트잇 실시간 생성/수신/수정 및 방 상태 변경 감지)
   useEffect(() => {
-    // 포스트잇 생성 구독
+    // 포스트잇 변경사항 구독 (INSERT 및 UPDATE 모두 감지)
     const postsChannel = supabase
       .channel(`realtime-posts-${roomId}`)
       .on(
@@ -135,6 +135,24 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
           const newPost = payload.new as Post
           if (newPost.question_id !== currentQuestionIdRef.current) return
           setPosts((prev) => [...prev, newPost])
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'posts', filter: `room_id=eq.${roomId}` },
+        (payload: RealtimePostgresUpdatePayload<Post>) => {
+          const updatedPost = payload.new as Post
+          if (updatedPost.question_id !== currentQuestionIdRef.current) return
+
+          // 목록 내 해당 포스트잇 최신 데이터로 업데이트
+          setPosts((prev) =>
+            prev.map((post) => (post.id === updatedPost.id ? updatedPost : post))
+          )
+
+          // 만약 현재 열려있는 지목 팝업의 포스트잇이라면 팝업 내부도 실시간 업데이트
+          setSelectedPost((prevSelected) =>
+            prevSelected && prevSelected.id === updatedPost.id ? updatedPost : prevSelected
+          )
         }
       )
       .subscribe()
