@@ -386,7 +386,7 @@ export default function ParticipantPage() {
                 <textarea
                   rows={4}
                   maxLength={MAX_CONTENT_LENGTH}
-                  placeholder="마음 속 나눔을 솔직하게 적어주세요..."
+                  placeholder="하나님께서 주시는 마음을 솔직하게 나누어주세요"
                   value={content}
                   onChange={handleContentChange}
                   className="w-full p-3.5 rounded-xl border border-purple-100 bg-purple-50/30 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-purple-900 resize-none transition-all"

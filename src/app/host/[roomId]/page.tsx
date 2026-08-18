@@ -46,6 +46,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
   const [isLoading, setIsLoading] = useState(true)
   const [isStarting, setIsStarting] = useState(false)
   const [selectedPost, setSelectedPost] = useState<Post | null>(null) // 지목/선택 팝업용
+  const [isAllCompletedModal, setIsAllCompletedModal] = useState(false) // 모두 나눔 완료 여부 상태
 
   // realtime 콜백 안에서 최신 질문 id를 참조하기 위한 ref
   const currentQuestionIdRef = useRef<string | null>(null)
@@ -69,6 +70,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
   // 질문 정보 + 그 질문에 해당하는 포스트잇을 함께 갱신
   const loadQuestionAndPosts = async (questionId: string | null) => {
     currentQuestionIdRef.current = questionId
+    setIsAllCompletedModal(false) // 질문 변경 시 안내 상태 초기화
 
     if (!questionId) {
       setCurrentQuestion(null)
@@ -134,7 +136,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
         async (payload: RealtimePostgresUpdatePayload<Room>) => {
-          const updatedRoom = payload.new as Room // [수정] 타입 단열 추가
+          const updatedRoom = payload.new as Room
           setRoom(updatedRoom)
 
           if (updatedRoom.current_question_id !== currentQuestionIdRef.current) {
@@ -196,6 +198,9 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
   const handleGoToNextQuestion = async () => {
     if (!room || !currentQuestion || !room.template_id) return
 
+    setSelectedPost(null)
+    setIsAllCompletedModal(false)
+
     const { data: nextQuestions } = await supabase
       .from('questions')
       .select('*')
@@ -223,7 +228,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     }
   }
 
-  // 5. [랜덤 뽑기] 비복원 추출
+  // 5. [랜덤 뽑기] 비복원 추출 (다음 사람 지목 공통 처리)
   const handleRandomPick = async () => {
     const unselected = posts.filter((p) => !p.is_selected)
 
@@ -231,11 +236,13 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
       if (posts.length === 0) {
         alert('아직 제출된 포스트잇이 없습니다!')
       } else {
-        alert('이번 질문에서 모든 인원이 지목되었습니다. 다음 질문으로 넘어가 보세요!')
+        // 모든 사람이 지목 완료되었을 때 안내 상태 활성화
+        setIsAllCompletedModal(true)
       }
       return
     }
 
+    setIsAllCompletedModal(false)
     const randomIndex = Math.floor(Math.random() * unselected.length)
     const picked = unselected[randomIndex]
 
@@ -355,7 +362,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {/* [수정] 버튼 텍스트를 '🎲 랜덤 지목'으로 명확히 변경 */}
+                  {/* 랜덤 지목 버튼 */}
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
@@ -404,7 +411,10 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       className={`p-6 rounded-2xl border shadow-sm flex flex-col justify-between space-y-5 h-auto cursor-pointer hover:shadow-md transition-shadow ${colorClass} ${
                         post.is_selected ? 'opacity-40' : 'opacity-100'
                       }`}
-                      onClick={() => setSelectedPost(post)}
+                      onClick={() => {
+                        setSelectedPost(post)
+                        setIsAllCompletedModal(false)
+                      }}
                     >
                       <div className="flex-1 flex items-center justify-center py-2">
                         <p className="text-lg sm:text-xl font-bold leading-relaxed whitespace-pre-wrap text-center break-words w-full">
@@ -448,7 +458,10 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-              onClick={() => setSelectedPost(null)}
+              onClick={() => {
+                setSelectedPost(null)
+                setIsAllCompletedModal(false)
+              }}
             >
               <motion.div
                 initial={{ scale: 0.7, y: 30 }}
@@ -463,7 +476,10 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                     🎉 지목된 포스트잇
                   </span>
                   <button
-                    onClick={() => setSelectedPost(null)}
+                    onClick={() => {
+                      setSelectedPost(null)
+                      setIsAllCompletedModal(false)
+                    }}
                     className="text-slate-400 hover:text-slate-700 font-bold text-xl cursor-pointer"
                   >
                     ✕
@@ -484,6 +500,40 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
 
                 <div className="text-right font-bold text-purple-950 text-base">
                   — {selectedPost.author_name || '익명'}
+                </div>
+
+                {/* 하단 제어 영역 */}
+                <div className="pt-4 border-t border-purple-200/60 flex flex-col space-y-3 items-center">
+                  {isAllCompletedModal ? (
+                    /* 모든 사람 나눔 완료 시 안내 및 '넹❤️' 버튼 */
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="w-full p-4 bg-pink-100/90 border border-pink-200 rounded-2xl flex flex-col items-center space-y-3 text-center"
+                    >
+                      <p className="text-base font-bold text-pink-950 [font-family:'Gamja_Flower',sans-serif] text-xl">
+                        모든 사람이 나누었습니다!{'\n'}다음 질문으로 넘어가시겠습니까?
+                      </p>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleGoToNextQuestion}
+                        className="w-full py-3 bg-pink-600 hover:bg-pink-700 text-white font-black rounded-xl shadow-md text-xl cursor-pointer [font-family:'Gamja_Flower',sans-serif]"
+                      >
+                        넹❤️
+                      </motion.button>
+                    </motion.div>
+                  ) : (
+                    /* 다음 사람 지목 버튼 */
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleRandomPick}
+                      className="w-full py-3.5 bg-purple-900 hover:bg-purple-950 text-white font-bold rounded-2xl shadow-md transition-all text-lg flex items-center justify-center gap-2 cursor-pointer [font-family:'Gamja_Flower',sans-serif]"
+                    >
+                      <span>🎲 다음 사람 지목 →</span>
+                    </motion.button>
+                  )}
                 </div>
               </motion.div>
             </motion.div>
