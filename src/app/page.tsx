@@ -1,43 +1,58 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { motion, Variants } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
+import { Template } from '@/types/database'
 
-// useSearchParams 사용 및 Next.js 빌드 오류 방지를 위한 메인 콘텐츠 컴포넌트
 function HomePageContent() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const supabase = createClient()
-
-  // URL 쿼리 스트링에서 templateId 추출 (예: /?templateId=xxx)
-  const templateId = searchParams?.get('templateId')
 
   // 상태 관리
   const [roomCode, setRoomCode] = useState('')
   const [isCreating, setIsCreating] = useState(false)
-  const [templateTitle, setTemplateTitle] = useState<string | null>(null)
 
-  // 선택된 템플릿 정보 가져오기 (UX 배너용)
+  // 🔑 추가: 템플릿 목록 및 메인 화면 선택 상태
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(true)
+
+  // 1. Supabase에서 템플릿 목록 불러오기
   useEffect(() => {
-    if (templateId) {
-      const fetchTemplateInfo = async () => {
-        const { data } = await supabase
+    const fetchTemplates = async () => {
+      try {
+        const { data, error } = await supabase
           .from('templates')
-          .select('title')
-          .eq('id', templateId)
-          .single()
+          .select('*')
+          .order('created_at', { ascending: false })
 
-        if (data) setTemplateTitle(data.title)
+        if (error) throw error
+
+        if (data && data.length > 0) {
+          setTemplates(data)
+          setSelectedTemplateId(data[0].id) // 첫 번째 템플릿 기본 선택
+        }
+      } catch (err) {
+        console.error('템플릿 조회 중 오류:', err)
+      } finally {
+        setIsLoadingTemplates(false)
       }
-      fetchTemplateInfo()
     }
-  }, [templateId, supabase])
 
-  // 새 모임 시작 (templateId 포함 insert)
+    fetchTemplates()
+  }, [supabase])
+
+  // 새 모임 시작 (메인 화면에서 직접 선택한 selectedTemplateId 반영)
   const handleCreateRoom = async () => {
     if (isCreating) return
+
+    if (!selectedTemplateId) {
+      alert('사용할 나눔 템플릿을 선택해 주세요.')
+      return
+    }
+
     setIsCreating(true)
 
     try {
@@ -48,8 +63,7 @@ function HomePageContent() {
         .insert({
           room_code: generatedCode,
           status: 'WAITING',
-          // 🔑 templateId가 존재하면 DB에 함께 저장
-          ...(templateId ? { template_id: templateId } : {}),
+          template_id: selectedTemplateId, // 🔑 메인에서 선택된 templateId 저장
         })
         .select('id')
         .single()
@@ -67,7 +81,7 @@ function HomePageContent() {
     }
   }
 
-  // 기존 모임 참여 (admin 처리 추가)
+  // 기존 모임 참여 (admin 처리 유지)
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault()
     const rawCode = roomCode.trim()
@@ -87,7 +101,7 @@ function HomePageContent() {
     router.push(`/p/${formattedCode}`)
   }
 
-  // Variants 타입을 명시하여 VS Code 타입 오류 해결
+  // Variants 타입 명시
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
@@ -162,7 +176,7 @@ function HomePageContent() {
 
           {/* 우측 영역 */}
           <motion.div variants={itemVariants}>
-            <div className="bg-white/90 backdrop-blur-md rounded-[2.5rem] p-7 sm:p-9 lg:p-10 shadow-2xl shadow-purple-100/80 border border-purple-100 flex flex-col space-y-7 [font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,sans-serif]">
+            <div className="bg-white/90 backdrop-blur-md rounded-[2.5rem] p-7 sm:p-9 lg:p-10 shadow-2xl shadow-purple-100/80 border border-purple-100 flex flex-col space-y-6 [font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,sans-serif]">
               <div>
                 <h2 className="text-2xl sm:text-3xl font-black text-slate-900 mb-1">
                   모임 시작하기
@@ -172,27 +186,42 @@ function HomePageContent() {
                 </p>
               </div>
 
-              {/* 🌟 관리자 페이지에서 템플릿 선택 시 노출되는 배너 */}
-              {templateTitle && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs font-bold flex items-center gap-2"
-                >
-                  <span className="text-base">📌</span>
-                  <span>
-                    선택된 템플릿: <strong className="text-amber-950 font-black">&quot;{templateTitle}&quot;</strong> (새 모임 생성 시 적용됩니다)
-                  </span>
-                </motion.div>
-              )}
+              {/* 🔑 [추가] 템플릿 선택 드롭다운 (새 모임 시작 바로 위) */}
+              <motion.div variants={itemVariants} className="space-y-1.5">
+                <label htmlFor="templateSelect" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  나눔 질문 템플릿 선택
+                </label>
+                {isLoadingTemplates ? (
+                  <div className="w-full py-3 px-4 bg-slate-100 rounded-2xl text-xs text-slate-400 font-medium">
+                    템플릿 목록 불러오는 중...
+                  </div>
+                ) : templates.length > 0 ? (
+                  <select
+                    id="templateSelect"
+                    value={selectedTemplateId}
+                    onChange={(e) => setSelectedTemplateId(e.target.value)}
+                    className="w-full px-4 py-3.5 bg-slate-50/80 border border-slate-200/90 rounded-2xl text-slate-800 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-900 focus:bg-white transition-all cursor-pointer"
+                  >
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="w-full py-3 px-4 bg-red-50 border border-red-100 rounded-2xl text-xs text-red-500 font-medium">
+                    등록된 템플릿이 없습니다. 관리자에게 문의하세요.
+                  </div>
+                )}
+              </motion.div>
 
               {/* ① 새 모임 시작 */}
               <motion.div variants={itemVariants}>
                 <motion.button
                   onClick={handleCreateRoom}
-                  disabled={isCreating}
-                  whileHover={!isCreating ? { scale: 1.025, backgroundColor: '#3B0764' } : {}}
-                  whileTap={!isCreating ? { scale: 0.97 } : {}}
+                  disabled={isCreating || !selectedTemplateId}
+                  whileHover={!isCreating && selectedTemplateId ? { scale: 1.025, backgroundColor: '#3B0764' } : {}}
+                  whileTap={!isCreating && selectedTemplateId ? { scale: 0.97 } : {}}
                   transition={{ type: 'spring', bounce: 0.35 }}
                   className="w-full py-4 bg-purple-900 text-white font-bold rounded-2xl shadow-lg shadow-purple-900/20 transition-all text-xl flex items-center justify-center gap-2.5 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
                 >
@@ -248,7 +277,6 @@ function HomePageContent() {
   )
 }
 
-// Next.js App Router static export / build 경고 방지를 위한 Suspense wrapper
 export default function HomePage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-slate-50/60 flex items-center justify-center text-slate-400 font-bold">로딩 중...</div>}>
