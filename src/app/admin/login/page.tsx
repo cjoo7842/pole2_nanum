@@ -40,18 +40,23 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-amber-50/60 flex items-center justify-center p-6 text-slate-800">
-      <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-xl border border-amber-100 flex flex-col gap-6 relative overflow-hidden">
+    <main className="min-h-screen bg-slate-50/70 flex items-center justify-center p-6 text-slate-800 relative overflow-hidden font-sans">
+      {/* soft background light blurs */}
+      <div className="absolute -top-24 -left-24 w-96 h-96 bg-purple-200/40 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-pink-100/40 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md bg-white/95 backdrop-blur-md rounded-[20px] p-8 sm:p-10 shadow-[0_2px_4px_rgba(0,0,0,0.04),0_12px_32px_rgba(88,28,135,0.08)] border border-purple-100/80 flex flex-col gap-6 relative overflow-hidden z-10">
         {/* 장식용 배경 아이콘 */}
-        <div className="absolute -top-6 -right-6 text-8xl opacity-10 rotate-12 select-none">
+        <div className="absolute -top-6 -right-6 text-8xl opacity-10 rotate-12 select-none pointer-events-none">
           🔑
         </div>
 
         <div className="text-center space-y-2 relative z-10">
-          <span className="inline-block px-3 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded-full">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-100 text-purple-900 text-xs font-bold rounded-full border border-purple-200/80">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
             관리자 전용
           </span>
-          <h1 className="text-3xl font-black text-amber-950">
+          <h1 className="text-3xl font-black text-purple-950">
             pole2:나눔 🔒
           </h1>
           <p className="text-xs text-slate-500 font-medium">
@@ -70,7 +75,7 @@ export default function AdminLoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@example.com"
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition-all text-sm"
+              className="w-full h-[52px] px-4 rounded-xl bg-slate-50/80 border border-slate-200/90 focus:outline-none focus:ring-2 focus:ring-purple-900 focus:bg-white transition-all text-sm font-medium"
             />
           </div>
 
@@ -84,7 +89,7 @@ export default function AdminLoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition-all text-sm"
+              className="w-full h-[52px] px-4 rounded-xl bg-slate-50/80 border border-slate-200/90 focus:outline-none focus:ring-2 focus:ring-purple-900 focus:bg-white transition-all text-sm font-medium"
             />
           </div>
 
@@ -97,9 +102,9 @@ export default function AdminLoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="mt-2 w-full py-4 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-bold rounded-2xl shadow-md transition-all text-base disabled:opacity-50"
+            className="mt-2 w-full h-[52px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 transition-all text-base disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
           >
-            {isLoading ? '로그인 중...' : '로그인하기 💛'}
+            {isLoading ? '로그인 중...' : '로그인하기 →'}
           </button>
         </form>
       </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Room, Question, Post } from '@/types/database'
@@ -12,6 +12,7 @@ interface QuestionWithPosts extends Question {
 
 export default function AdminHistoryDetailPage() {
   const params = useParams()
+  const router = useRouter()
   // useParams의 안전한 문자열 추출
   const roomId = typeof params?.roomId === 'string' ? params.roomId : Array.isArray(params?.roomId) ? params.roomId[0] : ''
 
@@ -19,6 +20,7 @@ export default function AdminHistoryDetailPage() {
   const [questionsWithPosts, setQuestionsWithPosts] = useState<QuestionWithPosts[]>([])
   const [unassignedPosts, setUnassignedPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
+  const [isDeletingRoom, setIsDeletingRoom] = useState(false)
 
   // 이미지 크게보기 모달 상태
   const [selectedImagePost, setSelectedImagePost] = useState<Post | null>(null)
@@ -81,6 +83,47 @@ export default function AdminHistoryDetailPage() {
     fetchData()
   }, [fetchData])
 
+  // 모임 전체 삭제
+  const handleDeleteEntireRoom = async () => {
+    if (isDeletingRoom) return
+
+    if (
+      !confirm(
+        `방 코드 [${room?.room_code || ''}] 모임의 모든 나눔 기록(포스트잇 및 사진)을 영구 삭제하시겠습니까?\n\n※ 삭제된 데이터는 복구할 수 없습니다.`
+      )
+    ) {
+      return
+    }
+
+    setIsDeletingRoom(true)
+    const supabase = createClient()
+
+    try {
+      // 1. 포스트잇 먼저 삭제
+      const { error: postErr } = await supabase
+        .from('posts')
+        .delete()
+        .eq('room_id', roomId)
+
+      if (postErr) throw postErr
+
+      // 2. 방 삭제
+      const { error: roomErr } = await supabase
+        .from('rooms')
+        .delete()
+        .eq('id', roomId)
+
+      if (roomErr) throw roomErr
+
+      alert('모임 기록이 성공적으로 삭제되었습니다.')
+      router.push('/admin/history')
+    } catch (err: any) {
+      console.error('모임 삭제 실패:', err)
+      alert(`모임 삭제 중 오류가 발생했습니다: ${err.message || '알 수 없는 오류'}`)
+      setIsDeletingRoom(false)
+    }
+  }
+
   // 관리자용 포스트잇 삭제
   const handleDeletePost = async (postId: string) => {
     if (!confirm('이 포스트잇을 삭제하시겠습니까?\n삭제된 포스트잇은 복구할 수 없습니다.')) {
@@ -136,50 +179,61 @@ export default function AdminHistoryDetailPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto">
+    <div className="space-y-8 max-w-5xl mx-auto font-sans">
       {/* 상단 헤더 */}
-      <div>
-        <Link
-          href="/admin/history"
-          className="text-xs font-bold text-slate-400 hover:text-amber-600 flex items-center gap-1 mb-2"
-        >
-          ← 모임 히스토리 목록으로
-        </Link>
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-black text-amber-950">
-            모임 기록 상세
-          </h1>
-          <span className="font-mono text-xs font-bold bg-amber-100 text-amber-900 px-3 py-1 rounded-full">
-            방 코드: {room?.room_code}
-          </span>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <Link
+            href="/admin/history"
+            className="text-xs font-bold text-slate-400 hover:text-purple-900 flex items-center gap-1 mb-2 transition-colors"
+          >
+            ← 모임 히스토리 목록으로
+          </Link>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-black text-purple-950">
+              모임 기록 상세
+            </h1>
+            <span className="font-mono text-xs font-bold bg-purple-100 text-purple-900 px-3 py-1 rounded-full border border-purple-200/80">
+              방 코드: {room?.room_code}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            {room?.created_at &&
+              new Date(room.created_at).toLocaleString('ko-KR', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+          </p>
         </div>
-        <p className="text-xs text-slate-500 mt-1">
-          {room?.created_at &&
-            new Date(room.created_at).toLocaleString('ko-KR', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-        </p>
+
+        <button
+          type="button"
+          disabled={isDeletingRoom}
+          onClick={handleDeleteEntireRoom}
+          className="self-start sm:self-auto px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50"
+        >
+          {isDeletingRoom ? '삭제 진행 중...' : '🗑️ 이 모임 기록 전체 삭제'}
+        </button>
       </div>
 
       {/* 질문별 포스트잇 갤러리 섹션 */}
       {questionsWithPosts.map((q) => (
         <section key={q.id} className="space-y-3">
-          <div className="border-b border-amber-200/60 pb-2 flex items-baseline gap-2">
-            <span className="text-xs font-bold bg-amber-500 text-white px-2.5 py-0.5 rounded-full">
+          <div className="border-b border-purple-200/60 pb-2 flex items-baseline gap-2">
+            <span className="text-xs font-bold bg-purple-900 text-white px-2.5 py-0.5 rounded-full">
               Q{q.step_order}
             </span>
-            <h2 className="text-lg font-bold text-slate-800">{q.title}</h2>
+            <h2 className="text-lg font-bold text-slate-900">{q.title}</h2>
             <span className="text-xs text-slate-400 ml-auto">
               {q.posts.length}개의 나눔
             </span>
           </div>
 
           {q.posts.length === 0 ? (
-            <p className="text-xs text-slate-400 py-6 text-center border border-dashed border-slate-200 rounded-2xl bg-white">
+            <p className="text-xs text-slate-400 py-6 text-center border border-dashed border-purple-200/80 rounded-[16px] bg-white/80">
               이 질문에는 제출된 포스트잇이 없습니다.
             </p>
           ) : (
@@ -222,7 +276,7 @@ export default function AdminHistoryDetailPage() {
       {/* 원본 이미지 확대 및 다운로드 모달 */}
       {selectedImagePost && selectedImagePost.image_url && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl relative">
+          <div className="bg-white/95 backdrop-blur-md rounded-[24px] p-6 max-w-lg w-full space-y-4 shadow-2xl relative border border-purple-100">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-800">
@@ -236,13 +290,13 @@ export default function AdminHistoryDetailPage() {
               </div>
               <button
                 onClick={() => setSelectedImagePost(null)}
-                className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1"
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="max-h-[60vh] overflow-hidden rounded-2xl bg-slate-100 flex items-center justify-center">
+            <div className="max-h-[60vh] overflow-hidden rounded-2xl bg-slate-900/5 flex items-center justify-center border border-slate-200/60">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={selectedImagePost.image_url}
@@ -251,10 +305,10 @@ export default function AdminHistoryDetailPage() {
               />
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2.5 pt-2">
               <button
                 onClick={() => setSelectedImagePost(null)}
-                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-sm"
+                className="flex-1 h-[48px] bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-sm cursor-pointer transition-colors"
               >
                 닫기
               </button>
@@ -265,7 +319,7 @@ export default function AdminHistoryDetailPage() {
                     selectedImagePost.author_name || '참가자'
                   )
                 }
-                className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-sm shadow flex items-center justify-center gap-1.5"
+                className="flex-1 h-[48px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl text-sm shadow-md shadow-purple-900/20 flex items-center justify-center gap-1.5 cursor-pointer transition-all"
               >
                 <span>💾</span> 사진 다운로드
               </button>
@@ -288,15 +342,15 @@ function PostCard({
   onImageClick: () => void
 }) {
   return (
-    <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4 shadow-sm flex flex-col justify-between gap-3 relative group">
+    <div className="bg-white/95 backdrop-blur-md border border-purple-100/80 rounded-[16px] p-4 shadow-[0_2px_4px_rgba(0,0,0,0.02),0_8px_24px_rgba(88,28,135,0.04)] flex flex-col justify-between gap-3 relative group hover:shadow-md transition-shadow">
       {/* 상단 작성자 및 삭제 버튼 */}
-      <div className="flex items-center justify-between border-b border-amber-200/50 pb-2">
-        <span className="text-xs font-black text-amber-900">
+      <div className="flex items-center justify-between border-b border-purple-100/60 pb-2">
+        <span className="text-xs font-black text-purple-950">
           {post.author_name || '익명'}
         </span>
         <button
           onClick={() => onDelete(post.id)}
-          className="text-[11px] font-bold text-slate-300 hover:text-red-500 transition-colors"
+          className="text-[11px] font-bold text-slate-300 hover:text-red-600 transition-colors cursor-pointer"
         >
           삭제
         </button>
@@ -306,7 +360,7 @@ function PostCard({
       {post.image_url && (
         <div
           onClick={onImageClick}
-          className="relative h-32 rounded-xl overflow-hidden bg-slate-100 cursor-pointer group/img"
+          className="relative h-32 rounded-xl overflow-hidden bg-slate-100 border border-purple-100/60 cursor-pointer group/img"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -322,7 +376,7 @@ function PostCard({
 
       {/* 내용 */}
       {post.content && (
-        <p className="text-xs font-medium text-slate-700 whitespace-pre-wrap leading-relaxed">
+        <p className="text-xs font-medium text-slate-800 whitespace-pre-wrap leading-relaxed">
           {post.content}
         </p>
       )}

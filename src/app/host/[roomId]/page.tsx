@@ -302,14 +302,18 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
   return (
     <>
       <link
-        href="https://fonts.googleapis.com/css2?family=Gamja+Flower&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Gamja+Flower&family=Noto+Serif+KR:wght@400;500;600&display=swap"
         rel="stylesheet"
       />
 
-      <main className="min-h-screen bg-violet-50/30 text-slate-800 p-6 sm:p-10 lg:p-16 flex flex-col justify-center relative overflow-hidden">
+      <main className="min-h-screen bg-slate-50/70 text-slate-800 p-6 sm:p-10 lg:p-16 flex flex-col justify-center relative overflow-hidden font-sans">
+        {/* soft background light blurs */}
+        <div className="absolute -top-24 -left-24 w-96 h-96 bg-purple-200/40 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-pink-100/40 rounded-full blur-3xl pointer-events-none" />
+
         {/* ==================== [대기 화면: STATUS === 'WAITING'] ==================== */}
         {room?.status === 'WAITING' ? (
-          <div className="max-w-6xl w-full mx-auto my-auto grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+          <div className="max-w-5xl w-full mx-auto my-auto grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center relative z-10">
             {/* 1. [좌측 영역] QR 코드 */}
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -317,11 +321,12 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
               transition={{ type: 'spring', bounce: 0.3 }}
               className="flex flex-col items-center justify-center space-y-4 p-4"
             >
-              <div className="p-4 bg-purple-100/60 rounded-3xl border border-purple-200/60 shadow-sm backdrop-blur-sm">
+              <div className="p-5 bg-white/90 backdrop-blur-md rounded-[20px] border border-purple-100 shadow-[0_2px_4px_rgba(0,0,0,0.04),0_12px_32px_rgba(88,28,135,0.08)]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={qrApiUrl}
                   alt="모임 접속 QR 코드"
-                  className="w-64 h-64 sm:w-72 sm:h-72 lg:w-80 lg:h-80 object-contain rounded-2xl"
+                  className="w-64 h-64 sm:w-72 sm:h-72 lg:w-80 lg:h-80 object-contain rounded-xl"
                 />
               </div>
               <p className="text-xs sm:text-sm text-slate-400 font-medium font-mono break-all text-center max-w-sm">
@@ -334,10 +339,11 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.1, type: 'spring', bounce: 0.35 }}
-              className="bg-white/90 backdrop-blur-md p-8 sm:p-10 rounded-[2.5rem] border border-purple-100 shadow-2xl shadow-purple-100/80 flex flex-col items-center text-center justify-between space-y-8"
+              className="bg-white/95 backdrop-blur-md p-8 sm:p-10 rounded-[20px] border border-purple-100/70 shadow-[0_2px_4px_rgba(0,0,0,0.04),0_12px_32px_rgba(88,28,135,0.08)] flex flex-col items-center text-center justify-between space-y-8"
             >
               <div className="flex flex-col items-center space-y-2 w-full">
-                <span className="text-sm sm:text-base uppercase tracking-wider text-purple-900 bg-purple-100 px-4 py-1.5 rounded-full border border-purple-200/80 [font-family:'Gamja_Flower',sans-serif]">
+                <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm uppercase tracking-wider text-purple-900 bg-purple-100 px-4 py-1.5 rounded-full border border-purple-200/80 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
                   모임 참여 코드
                 </span>
                 <h1 className="text-6xl sm:text-7xl lg:text-8xl font-black text-purple-900 font-mono tracking-wider drop-shadow-sm text-center">
@@ -355,29 +361,29 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                 <motion.button
                   onClick={handleStartSharing}
                   disabled={isStarting}
-                  whileHover={{ scale: 1.02, backgroundColor: '#3B0764' }}
+                  whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className="w-full py-5 bg-purple-900 text-white font-bold rounded-2xl shadow-xl shadow-purple-900/20 transition-all flex items-center justify-center gap-3 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
+                  transition={{ type: 'spring', bounce: 0.3 }}
+                  className="w-full h-[56px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:bg-slate-300 disabled:from-slate-300 disabled:to-slate-300 disabled:cursor-not-allowed text-lg"
                 >
-                  <span className="text-2xl sm:text-3xl [font-family:'Gamja_Flower',sans-serif]">
-                    {isStarting ? '나눔 준비 중...' : '🚀 나눔 시작하기'}
-                  </span>
+                  <span>🚀</span>
+                  <span>{isStarting ? '나눔 준비 중...' : '나눔 시작하기'}</span>
                 </motion.button>
               </div>
             </motion.div>
           </div>
         ) : (
           /* ==================== [진행 화면: STATUS === 'IN_PROGRESS' / 'COMPLETED'] ==================== */
-          <div className="max-w-7xl w-full mx-auto flex flex-col space-y-8 pt-24 pb-12">
+          <div className="max-w-7xl w-full mx-auto flex flex-col space-y-8 pt-24 pb-12 relative z-10">
             {/* 질문 박스 상단 고정 */}
-            <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-md px-6 py-4 border-b border-purple-100 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-md px-6 py-4 border-b border-purple-100/80 shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
               <div className="max-w-7xl w-full mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-bold bg-purple-100 text-purple-900 px-2.5 py-1 rounded-md">
+                    <span className="text-xs font-bold bg-purple-100 text-purple-900 px-2.5 py-0.5 rounded-full border border-purple-200/80">
                       코드: {room?.room_code}
                     </span>
-                    <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-md flex items-center gap-1">
+                    <span className="text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                       실시간 진행 중
                     </span>
@@ -395,14 +401,13 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                 <div className="flex items-center gap-3">
                   {/* 랜덤 지목 버튼 */}
                   <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
                     onClick={handleRandomPick}
-                    className="px-6 py-3 bg-purple-900 hover:bg-purple-950 text-white font-bold rounded-2xl shadow-md transition-colors flex items-center gap-2 cursor-pointer"
+                    className="h-[46px] px-6 bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 transition-all flex items-center gap-2 cursor-pointer text-sm"
                   >
-                    <span className="text-xl sm:text-2xl [font-family:'Gamja_Flower',sans-serif]">
-                      🎲 랜덤 지목
-                    </span>
+                    <span>🎲</span>
+                    <span>랜덤 지목</span>
                   </motion.button>
                 </div>
               </div>
@@ -413,14 +418,14 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
               <AnimatePresence>
                 {posts.map((post, idx) => {
                   const bgColors = [
-                    'bg-amber-100/90 border-amber-200 text-amber-950',
-                    'bg-rose-100/90 border-rose-200 text-rose-950',
-                    'bg-sky-100/90 border-sky-200 text-sky-950',
-                    'bg-emerald-100/90 border-emerald-200 text-emerald-950',
-                    'bg-purple-100/90 border-purple-200 text-purple-950',
+                    'bg-white/95 border-purple-100 text-slate-800',
+                    'bg-purple-50/90 border-purple-200/80 text-purple-950',
+                    'bg-pink-50/90 border-pink-200/80 text-pink-950',
+                    'bg-amber-50/90 border-amber-200/80 text-amber-950',
+                    'bg-sky-50/90 border-sky-200/80 text-sky-950',
                   ]
                   const colorClass = bgColors[idx % bgColors.length]
-                  const rotateDeg = (idx % 2 === 0 ? 1 : -1) * ((idx % 3) + 1)
+                  const rotateDeg = (idx % 2 === 0 ? 1 : -1) * ((idx % 3) + 0.5)
 
                   return (
                     <motion.div
@@ -429,23 +434,24 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       animate={{ opacity: 1, scale: 1, rotate: rotateDeg }}
                       exit={{ opacity: 0, scale: 0.5 }}
                       transition={{ type: 'spring', bounce: 0.3 }}
-                      className={`p-6 rounded-2xl border shadow-sm flex flex-col justify-between space-y-5 h-auto cursor-pointer hover:shadow-md transition-shadow ${colorClass} ${
+                      className={`p-6 rounded-[16px] border shadow-[0_2px_4px_rgba(0,0,0,0.02),0_8px_16px_rgba(88,28,135,0.04)] flex flex-col justify-between space-y-5 h-auto cursor-pointer hover:shadow-lg transition-all ${colorClass} ${
                         post.is_selected ? 'opacity-40' : 'opacity-100'
                       }`}
                       onClick={() => {
                         setSelectedPost(post)
                         setIsAllCompletedModal(false)
-                        fireConfetti() // 카드를 직접 클릭해 띄울 때도 폭죽 발사!
+                        fireConfetti()
                       }}
                     >
                       <div className="flex-1 flex items-center justify-center py-2">
-                        <p className="text-lg sm:text-xl font-bold leading-relaxed whitespace-pre-wrap text-center break-words w-full">
+                        <p className="text-base sm:text-lg font-bold leading-relaxed whitespace-pre-wrap text-center break-words w-full">
                           {post.content}
                         </p>
                       </div>
 
                       {post.image_url && (
                         <div className="w-full">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={post.image_url}
                             alt="첨부 사진"
@@ -455,7 +461,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       )}
 
                       <div className="flex justify-between items-center text-xs font-bold opacity-75 pt-3 border-t border-black/5">
-                        <span>{post.author_name || '익명'}</span>
+                        <span className="font-bold">{post.author_name || '익명'}</span>
                         <span>{new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                     </motion.div>
@@ -490,33 +496,34 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                 animate={{ scale: 1, y: 0 }}
                 exit={{ scale: 0.7, y: 30 }}
                 transition={{ type: 'spring', bounce: 0.3 }}
-                className="bg-purple-50 border-2 border-purple-200 p-8 rounded-3xl shadow-2xl max-w-lg w-full text-slate-900 space-y-6 relative"
+                className="bg-white/95 backdrop-blur-md border border-purple-100 p-8 rounded-[24px] shadow-2xl max-w-lg w-full text-slate-900 space-y-6 relative font-sans"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold uppercase bg-purple-200 text-purple-900 px-3 py-1 rounded-full [font-family:'Gamja_Flower',sans-serif] text-sm">
-                    🎉 지목된 포스트잇
+                  <span className="inline-flex items-center gap-1 text-xs font-bold uppercase bg-purple-100 text-purple-900 px-3 py-1 rounded-full border border-purple-200/80">
+                    🎉 지목된 나눔
                   </span>
                   <button
                     onClick={() => {
                       setSelectedPost(null)
                       setIsAllCompletedModal(false)
                     }}
-                    className="text-slate-400 hover:text-slate-700 font-bold text-xl cursor-pointer"
+                    className="text-slate-400 hover:text-slate-700 font-bold text-xl cursor-pointer p-1"
                   >
                     ✕
                   </button>
                 </div>
 
-                <p className="text-2xl sm:text-3xl font-bold leading-relaxed whitespace-pre-wrap text-center break-words">
+                <p className="text-2xl sm:text-3xl font-black text-slate-900 leading-relaxed whitespace-pre-line text-center break-words">
                   {selectedPost.content}
                 </p>
 
                 {selectedPost.image_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={selectedPost.image_url}
                     alt="첨부 이미지"
-                    className="w-full h-auto max-h-80 object-contain rounded-2xl border border-purple-100"
+                    className="w-full h-auto max-h-80 object-contain rounded-2xl border border-purple-100 bg-slate-50"
                   />
                 )}
 
@@ -525,24 +532,24 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                 </div>
 
                 {/* 하단 제어 영역 */}
-                <div className="pt-4 border-t border-purple-200/60 flex flex-col space-y-3 items-center">
+                <div className="pt-4 border-t border-purple-100 flex flex-col space-y-3 items-center">
                   {isAllCompletedModal ? (
                     /* 모든 사람 나눔 완료 시 안내 및 '넹❤️' 버튼 */
                     <motion.div
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      className="w-full p-4 bg-pink-100/90 border border-pink-200 rounded-2xl flex flex-col items-center space-y-3 text-center"
+                      className="w-full p-5 bg-purple-50 border border-purple-200/80 rounded-2xl flex flex-col items-center space-y-3 text-center"
                     >
-                      <p className="text-base font-bold text-pink-950 [font-family:'Gamja_Flower',sans-serif] text-xl break-keep">
-                        모든 사람이 나누었습니다!{'\n'}다음 질문으로 넘어가시겠습니까?
+                      <p className="text-base font-bold text-purple-950 break-keep">
+                        모든 사람이 나누었습니다! 🎉{'\n'}다음 질문으로 넘어가시겠습니까?
                       </p>
                       <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
                         onClick={handleGoToNextQuestion}
-                        className="w-full py-3 bg-pink-600 hover:bg-pink-700 text-white font-black rounded-xl shadow-md text-xl cursor-pointer [font-family:'Gamja_Flower',sans-serif]"
+                        className="w-full h-[52px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-base cursor-pointer transition-all flex items-center justify-center gap-2"
                       >
-                        넹❤️
+                        다음 질문으로 넘어가기 →
                       </motion.button>
                     </motion.div>
                   ) : (
@@ -551,9 +558,9 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={handleRandomPick}
-                      className="w-full py-3.5 bg-purple-900 hover:bg-purple-950 text-white font-bold rounded-2xl shadow-md transition-all text-lg flex items-center justify-center gap-2 cursor-pointer [font-family:'Gamja_Flower',sans-serif]"
+                      className="w-full h-[52px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 transition-all text-base flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <span>🎲 다음 사람 지목 →</span>
+                      <span>🎲 다음 사람 지목하기 →</span>
                     </motion.button>
                   )}
                 </div>

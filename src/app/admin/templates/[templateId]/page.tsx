@@ -44,7 +44,7 @@ function SortableQuestionItem({
     <div
       ref={setNodeRef}
       style={style}
-      className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-4 select-none"
+      className="bg-white/95 backdrop-blur-md p-4 sm:p-5 rounded-[16px] border border-purple-100/80 shadow-[0_2px_4px_rgba(0,0,0,0.02),0_8px_16px_rgba(88,28,135,0.04)] flex items-center justify-between gap-4 select-none"
     >
       <div className="flex items-center gap-3 min-w-0 flex-1">
         {/* 드래그 핸들 손잡이 아이콘 */}
@@ -52,16 +52,16 @@ function SortableQuestionItem({
           type="button"
           {...attributes}
           {...listeners}
-          className="p-2 text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing rounded-lg hover:bg-slate-100"
+          className="p-2 text-slate-300 hover:text-purple-900 cursor-grab active:cursor-grabbing rounded-lg hover:bg-purple-50 transition-colors"
         >
           ☰
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+            <span className="text-xs font-bold bg-purple-100 text-purple-900 px-2.5 py-0.5 rounded-full border border-purple-200/80">
               Q{question.step_order}
             </span>
-            <h4 className="font-bold text-slate-800 text-base truncate">
+            <h4 className="font-bold text-slate-900 text-base truncate">
               {question.title}
             </h4>
           </div>
@@ -75,7 +75,7 @@ function SortableQuestionItem({
 
       <button
         onClick={() => onDelete(question.id)}
-        className="text-xs font-bold text-slate-300 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition-all"
+        className="text-xs font-bold text-slate-300 hover:text-red-600 p-2 hover:bg-red-50 rounded-xl transition-all cursor-pointer"
       >
         삭제
       </button>
@@ -126,8 +126,7 @@ export default function TemplateDetailPage() {
     if (tData) setTemplate(tData)
     if (qData) setQuestions(qData)
     setLoading(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId])
+  }, [templateId, supabase])
 
   useEffect(() => {
     fetchData()
@@ -257,16 +256,16 @@ export default function TemplateDetailPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-4xl mx-auto font-sans">
       {/* 상단 헤더 영역 */}
       <div>
         <Link
           href="/admin/templates"
-          className="text-xs font-bold text-slate-400 hover:text-amber-600 flex items-center gap-1 mb-2"
+          className="text-xs font-bold text-slate-400 hover:text-purple-900 flex items-center gap-1 mb-2 transition-colors"
         >
           ← 템플릿 목록으로 돌아가기
         </Link>
-        <h1 className="text-2xl font-black text-amber-950">
+        <h1 className="text-2xl font-black text-purple-950">
           {template?.title || '템플릿 질문 상세'}
         </h1>
         <p className="text-xs text-slate-500 mt-0.5">
@@ -277,9 +276,9 @@ export default function TemplateDetailPage() {
       {/* 질문 추가 폼 */}
       <form
         onSubmit={handleAddQuestion}
-        className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3"
+        className="bg-white/95 backdrop-blur-md p-6 rounded-[20px] border border-purple-100/80 shadow-[0_2px_4px_rgba(0,0,0,0.04),0_12px_32px_rgba(88,28,135,0.06)] space-y-4"
       >
-        <h3 className="text-sm font-bold text-slate-700">➕ 새 질문 추가하기</h3>
+        <h3 className="text-sm font-black text-slate-800">➕ 새 질문 추가하기</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <input
             type="text"
@@ -287,21 +286,21 @@ export default function TemplateDetailPage() {
             placeholder="메인 질문 내용 (예: 이번 주의 감사했던 순간은?)"
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
-            className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+            className="h-[52px] px-4 bg-slate-50/80 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-900 focus:bg-white font-medium transition-all"
           />
           <input
             type="text"
             placeholder="보조 설명 (선택 사항 - 예: 사진과 함께 적어주세요)"
             value={newSubtitle}
             onChange={(e) => setNewSubtitle(e.target.value)}
-            className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+            className="h-[52px] px-4 bg-slate-50/80 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-900 focus:bg-white font-medium transition-all"
           />
         </div>
         <div className="flex justify-end">
           <button
             type="submit"
             disabled={isAdding}
-            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-sm shadow transition-all disabled:opacity-50"
+            className="px-6 h-[46px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl text-sm shadow-md shadow-purple-900/20 transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
           >
             {isAdding ? '추가 중...' : '질문 등록'}
           </button>
@@ -310,12 +309,12 @@ export default function TemplateDetailPage() {
 
       {/* 질문 리스트 (Drag & Drop Context) */}
       <div className="space-y-3">
-        <h3 className="text-sm font-bold text-slate-600">
+        <h3 className="text-sm font-bold text-slate-700">
           등록된 질문 목록 ({questions.length}개)
         </h3>
 
         {questions.length === 0 ? (
-          <div className="py-12 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-white text-slate-400 text-xs font-medium">
+          <div className="py-12 text-center border-2 border-dashed border-purple-200/80 rounded-[20px] bg-white/80 text-slate-400 text-xs font-medium">
             아직 추가된 질문이 없습니다. 위에서 질문을 등록해 주세요!
           </div>
         ) : (
@@ -328,7 +327,7 @@ export default function TemplateDetailPage() {
               items={questions.map((q) => q.id)}
               strategy={verticalListSortingStrategy}
             >
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {questions.map((question) => (
                   <SortableQuestionItem
                     key={question.id}

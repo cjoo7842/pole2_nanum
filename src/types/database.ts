@@ -4,6 +4,7 @@ export interface Template {
   id: string;
   title: string;
   description: string | null;
+  is_public: boolean;
   created_at: string;
 }
 
