@@ -199,10 +199,10 @@ export default function AdminTemplatesPage() {
       // 8. UI 상태 즉시 갱신
       setTemplates((prev) => prev.filter((t) => t.id !== id))
       alert(`'${title}' 템플릿 및 연관 모임 기록이 모두 깔끔하게 삭제되었습니다.`)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('템플릿 전체 연쇄 삭제 프로세스 중 예외 발생:', err)
       const errorMsg =
-        err?.message || (typeof err === 'object' ? JSON.stringify(err, null, 2) : String(err))
+        err instanceof Error ? err.message : (typeof err === 'object' ? JSON.stringify(err, null, 2) : String(err))
       alert(`템플릿 삭제 중 오류가 발생했습니다.\n\n[오류 내용]\n${errorMsg}`)
     } finally {
       setDeletingId(null)

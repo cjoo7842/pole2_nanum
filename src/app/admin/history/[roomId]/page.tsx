@@ -118,9 +118,10 @@ export default function AdminHistoryDetailPage() {
 
       alert('모임 기록이 성공적으로 삭제되었습니다.')
       router.push('/admin/history')
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('모임 삭제 실패:', err)
-      alert(`모임 삭제 중 오류가 발생했습니다: ${err.message || '알 수 없는 오류'}`)
+      const msg = err instanceof Error ? err.message : '알 수 없는 오류'
+      alert(`모임 삭제 중 오류가 발생했습니다: ${msg}`)
       setIsDeletingRoom(false)
     }
   }

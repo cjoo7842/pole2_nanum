@@ -6,7 +6,7 @@ import imageCompression from 'browser-image-compression'
 import { createClient } from '@/lib/supabase/client'
 import { RealtimePostgresUpdatePayload } from '@supabase/supabase-js'
 import { Room, Question, Post } from '@/types/database'
-import { isValidImageUrl, getPostImageUrl } from '@/lib/image'
+import { getPostImageUrl } from '@/lib/image'
 
 // 명세서: "멀티라인 작성(최대 300자)"
 const MAX_CONTENT_LENGTH = 300
@@ -341,7 +341,7 @@ export default function ParticipantPage() {
         const fileExt = imageFile.name.split('.').pop()?.toLowerCase() || 'jpg'
         const filePath = `${room.id}/${crypto.randomUUID()}.${fileExt}`
 
-        const { data: uploadData, error: uploadError } = await supabase.storage
+        const { error: uploadError } = await supabase.storage
           .from('post-images')
           .upload(filePath, compressedFile, {
             contentType: imageFile.type || 'image/jpeg',
@@ -384,7 +384,7 @@ export default function ParticipantPage() {
             console.warn('이전 Storage 파일 정리 예외 (무시 가능):', delErr)
           }
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Storage 업로드 실패:', err)
         alert('이미지 업로드에 실패했습니다.')
         setLoading(false)

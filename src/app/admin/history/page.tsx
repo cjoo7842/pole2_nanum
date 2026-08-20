@@ -114,9 +114,10 @@ export default function AdminHistoryPage() {
       // 3. UI 상태 즉시 갱신
       setRooms((prev) => prev.filter((r) => r.id !== roomId))
       alert(`[${roomCode}] 모임 기록이 성공적으로 삭제되었습니다.`)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('모임 삭제 중 오류 발생:', err)
-      alert(`모임 기록 삭제 중 오류가 발생했습니다: ${err.message || '알 수 없는 오류'}`)
+      const msg = err instanceof Error ? err.message : '알 수 없는 오류'
+      alert(`모임 기록 삭제 중 오류가 발생했습니다: ${msg}`)
     } finally {
       setDeletingRoomId(null)
     }
@@ -158,9 +159,10 @@ export default function AdminHistoryPage() {
       // 3. UI 갱신
       setRooms((prev) => prev.filter((r) => r.template_id !== null))
       alert(`잔여 모임 ${orphanRooms.length}개가 깨끗하게 정리되었습니다.`)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('잔여 모임 정리 중 오류:', err)
-      alert(`잔여 모임 정리 중 오류가 발생했습니다: ${err.message || '알 수 없는 오류'}`)
+      const msg = err instanceof Error ? err.message : '알 수 없는 오류'
+      alert(`잔여 모임 정리 중 오류가 발생했습니다: ${msg}`)
     } finally {
       setIsCleaningUp(false)
     }

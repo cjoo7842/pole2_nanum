@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   DndContext,
@@ -85,7 +85,6 @@ function SortableQuestionItem({
 
 export default function TemplateDetailPage() {
   const params = useParams()
-  const router = useRouter()
   const templateId = typeof params?.templateId === 'string' ? params.templateId : ''
   const supabase = createClient()
 
