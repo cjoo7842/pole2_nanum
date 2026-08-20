@@ -734,10 +734,12 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                 className="flex flex-col items-center space-y-5 text-center font-sans"
               >
                 <div className="text-6xl sm:text-7xl filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.4)]">
-                  💌
+                  {!posts.some((p) => p.is_selected) ? '🥁' : '💌'}
                 </div>
                 <h3 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-widest drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
-                  다음 사람은....
+                  {!posts.some((p) => p.is_selected)
+                    ? '첫 번째 나눔의 주인공은.... 🥁'
+                    : '다음 사람은....'}
                 </h3>
               </motion.div>
             </motion.div>
