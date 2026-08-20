@@ -29,6 +29,7 @@ export default function ParticipantPage() {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const currentQuestionIdRef = useRef<string | null>(null)
 
   const [loading, setLoading] = useState<boolean>(true)
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false)
@@ -114,8 +115,22 @@ export default function ParticipantPage() {
         return
       }
 
-      if (roomData) {
-        setRoom(roomData)
+      if (!roomData) {
+        setRoom(null)
+        setQuestion(null)
+        setExistingPost(null)
+        currentQuestionIdRef.current = null
+        if (!isSilent) setLoading(false)
+        return
+      }
+
+      setRoom(roomData)
+
+      const isQuestionChanged = roomData.current_question_id !== currentQuestionIdRef.current
+
+      // 질문이 변경되었거나 최초 로드인 경우에만 질문 및 포스트잇 데이터를 동기화
+      if (isQuestionChanged) {
+        currentQuestionIdRef.current = roomData.current_question_id || null
 
         if (roomData.current_question_id) {
           // 현재 질문 정보 조회
@@ -162,9 +177,11 @@ export default function ParticipantPage() {
         } else {
           setQuestion(null)
           setExistingPost(null)
+          setContent('')
+          setLocalPreviewUrl(null)
+          setImageFile(null)
+          setIsSubmitted(false)
         }
-      } else {
-        setRoom(null)
       }
     } catch (err) {
       console.error('fetchRoomAndQuestion 처리 중 예외 발생:', err)
