@@ -58,6 +58,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
   const [isPickingAnimation, setIsPickingAnimation] = useState(false) // 3초 대기 긴장감 연출 활성화 여부
   const [targetPostForAnimation, setTargetPostForAnimation] = useState<Post | null>(null) // 지목 대상 포스트잇
   const [isAllCompletedModal, setIsAllCompletedModal] = useState(false) // 모두 나눔 완료 여부 상태
+  const [isTransitioning, setIsTransitioning] = useState(false) // 다음 질문 전환 중 상태 (팝업 깜빡임 방지)
 
   // realtime 콜백 안에서 최신 질문 id를 참조하기 위한 ref
   const currentQuestionIdRef = useRef<string | null>(null)
@@ -136,6 +137,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     if (!questionId) {
       setCurrentQuestion(null)
       setPosts([])
+      setIsTransitioning(false)
       return
     }
 
@@ -147,6 +149,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
 
     setCurrentQuestion(questionData || null)
     await loadPostsForQuestion(questionId)
+    setIsTransitioning(false)
   }
 
   // 1. 방 데이터 및 질문/포스트잇 초기 로드 + Presence 접속자 수 구독
@@ -373,8 +376,10 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
 
   // 4. 다음 질문으로 이동
   const handleGoToNextQuestion = async () => {
-    if (!room || !currentQuestion || !room.template_id) return
+    if (!room || !currentQuestion || !room.template_id || isTransitioning) return
 
+    setIsTransitioning(true)
+    setIsAllSubmittedBannerDismissed(true)
     setSelectedPost(null)
     setPresentingPost(null)
     setIsPickingAnimation(false)
@@ -394,6 +399,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     if (!nextQuestion) {
       alert('모든 나눔 질문이 끝났습니다!')
       await supabase.from('rooms').update({ status: 'COMPLETED' }).eq('id', room.id)
+      setIsTransitioning(false)
       return
     }
 
@@ -405,6 +411,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     if (error) {
       console.error('다음 질문 이동 실패:', error)
       alert('다음 질문으로 넘어가는 중 오류가 발생했습니다.')
+      setIsTransitioning(false)
     }
   }
 
@@ -596,6 +603,10 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
             {/* ==================== [전원 제출 완료 알림 배너 모달] (요구사항 2, 3) ==================== */}
             <AnimatePresence>
               {room?.status === 'IN_PROGRESS' &&
+                !isTransitioning &&
+                !isPickingAnimation &&
+                !posts.some((p) => p.is_selected) &&
+                presentingPost === null &&
                 participantCount > 0 &&
                 posts.length >= participantCount &&
                 !selectedPost &&
