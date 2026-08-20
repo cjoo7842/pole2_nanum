@@ -619,7 +619,7 @@ export default function ParticipantPage() {
           ) : (
             /* 작성/수정 폼 뷰 */
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* 닉네임 뱃지 표시 (입력란 숨김) */}
+              {/* 닉네임 뱃지 고정 표시 (모임 시작 후에는 변경 불가) */}
               <div className="flex items-center justify-between bg-purple-50/80 p-3.5 rounded-xl border border-purple-100 text-xs">
                 <div className="flex items-center gap-2 font-bold text-purple-950">
                   <span>🐥</span>
@@ -628,16 +628,7 @@ export default function ParticipantPage() {
                     {authorName || '익명'}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTempNickname(authorName)
-                    setShowNicknameModal(true)
-                  }}
-                  className="text-slate-400 hover:text-purple-900 font-medium underline text-[11px] cursor-pointer"
-                >
-                  닉네임 변경
-                </button>
+                <span className="text-[11px] text-purple-900/60 font-medium">참여자</span>
               </div>
 
               <div>
@@ -704,54 +695,6 @@ export default function ParticipantPage() {
             </form>
           )}
         </div>
-
-        {/* 닉네임 입력 모달 (IN_PROGRESS 화면 중 닉네임 변경 시 또는 최초 입력 시) */}
-        {showNicknameModal && (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white/95 backdrop-blur-md rounded-[24px] p-6 sm:p-8 max-w-sm w-full space-y-5 shadow-2xl border border-purple-100 text-slate-800">
-              <div className="text-center space-y-2">
-                <div className="text-4xl">🐥</div>
-                <h2 className="text-xl font-black text-purple-950">나눔에 오신 것을 환영해요!</h2>
-                <p className="text-xs text-slate-500">
-                  모임에서 사용할 이름이나 닉네임을 입력해 주세요.
-                </p>
-              </div>
-
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  const name = tempNickname.trim()
-                  if (!name) {
-                    alert('이름이나 닉네임을 입력해 주세요!')
-                    return
-                  }
-                  setAuthorName(name)
-                  localStorage.setItem('participant_name', name)
-                  setShowNicknameModal(false)
-                }}
-                className="space-y-4"
-              >
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  maxLength={20}
-                  placeholder="예: 요한, 든든한 나무"
-                  value={tempNickname}
-                  onChange={(e) => setTempNickname(e.target.value)}
-                  className="w-full h-[52px] px-4 rounded-xl border border-purple-200 bg-purple-50/40 text-slate-900 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-900 focus:bg-white transition-all"
-                />
-
-                <button
-                  type="submit"
-                  className="w-full h-[52px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-base transition-all cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <span>입장하기 🚀</span>
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
       </main>
     </>
   )
