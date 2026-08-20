@@ -294,6 +294,9 @@ export default function ParticipantPage() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      if (localPreviewUrl && localPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(localPreviewUrl)
+      }
       setImageFile(file)
       const previewUrl = URL.createObjectURL(file)
       setLocalPreviewUrl(previewUrl)
@@ -302,6 +305,9 @@ export default function ParticipantPage() {
 
   // 이미지 첨부 취소/삭제 핸들러
   const handleRemoveImage = () => {
+    if (localPreviewUrl && localPreviewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(localPreviewUrl)
+    }
     setImageFile(null)
     setLocalPreviewUrl(null)
     if (fileInputRef.current) {
@@ -309,10 +315,10 @@ export default function ParticipantPage() {
     }
   }
 
-  // 4. 포스트잇 제출/수정 핸들러 (이미지 URL 누락 방지 및 비동기 순서 보장)
+  // 4. 포스트잇 제출/수정 핸들러 (이미지 URL 누락 방지 및 비동기 순서 보장, 동시 제출 방어)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!room || !question || !token) return
+    if (!room || !question || !token || loading) return
 
     const trimmedContent = content.trim()
 
@@ -332,128 +338,128 @@ export default function ParticipantPage() {
     }
 
     setLoading(true)
-    let finalImageUrl: string | null = null
+    try {
+      let finalImageUrl: string | null = null
 
-    // 1단계: 신규 이미지 파일이 있는 경우 -> 압축 및 Storage 업로드
-    if (imageFile) {
-      try {
-        const compressedFile = await compressImage(imageFile)
-        const fileExt = imageFile.name.split('.').pop()?.toLowerCase() || 'jpg'
-        const filePath = `${room.id}/${crypto.randomUUID()}.${fileExt}`
+      // 1단계: 신규 이미지 파일이 있는 경우 -> 압축 및 Storage 업로드
+      if (imageFile) {
+        try {
+          const compressedFile = await compressImage(imageFile)
+          const fileExt = imageFile.name.split('.').pop()?.toLowerCase() || 'jpg'
+          const filePath = `${room.id}/${crypto.randomUUID()}.${fileExt}`
 
-        const { error: uploadError } = await supabase.storage
-          .from('post-images')
-          .upload(filePath, compressedFile, {
-            contentType: imageFile.type || 'image/jpeg',
-            cacheControl: '3600',
-            upsert: false,
-          })
+          const { error: uploadError } = await supabase.storage
+            .from('post-images')
+            .upload(filePath, compressedFile, {
+              contentType: imageFile.type || 'image/jpeg',
+              cacheControl: '3600',
+              upsert: false,
+            })
 
-        if (uploadError) {
-          console.error('Storage 업로드 실패:', uploadError)
-          alert('이미지 업로드에 실패했습니다.')
-          setLoading(false)
-          return
-        }
-
-        // 업로드 성공 후 getPublicUrl 호출
-        const { data: publicUrlData } = supabase.storage
-          .from('post-images')
-          .getPublicUrl(filePath)
-
-        if (!publicUrlData?.publicUrl) {
-          console.error('Storage Public URL 추출 실패')
-          alert('이미지 업로드에 실패했습니다.')
-          setLoading(false)
-          return
-        }
-
-        finalImageUrl = publicUrlData.publicUrl
-        console.log('이미지 업로드 성공:', finalImageUrl)
-
-        // 이전 이미지가 존재하고 새 이미지로 교체된 경우, 이전 Storage 파일 정리
-        if (existingPost?.image_url && existingPost.image_url !== finalImageUrl) {
-          try {
-            const oldUrl = new URL(existingPost.image_url)
-            const pathSegments = oldUrl.pathname.split('/post-images/')
-            if (pathSegments.length > 1) {
-              const oldFilePath = pathSegments[1]
-              await supabase.storage.from('post-images').remove([oldFilePath])
-            }
-          } catch (delErr) {
-            console.warn('이전 Storage 파일 정리 예외 (무시 가능):', delErr)
+          if (uploadError) {
+            console.error('Storage 업로드 실패:', uploadError)
+            alert('이미지 업로드에 실패했습니다.')
+            return
           }
+
+          // 업로드 성공 후 getPublicUrl 호출
+          const { data: publicUrlData } = supabase.storage
+            .from('post-images')
+            .getPublicUrl(filePath)
+
+          if (!publicUrlData?.publicUrl) {
+            console.error('Storage Public URL 추출 실패')
+            alert('이미지 업로드에 실패했습니다.')
+            return
+          }
+
+          finalImageUrl = publicUrlData.publicUrl
+          console.log('이미지 업로드 성공:', finalImageUrl)
+
+          // 이전 이미지가 존재하고 새 이미지로 교체된 경우, 이전 Storage 파일 정리
+          if (existingPost?.image_url && existingPost.image_url !== finalImageUrl) {
+            try {
+              const oldUrl = new URL(existingPost.image_url)
+              const pathSegments = oldUrl.pathname.split('/post-images/')
+              if (pathSegments.length > 1) {
+                const oldFilePath = pathSegments[1]
+                await supabase.storage.from('post-images').remove([oldFilePath])
+              }
+            } catch (delErr) {
+              console.warn('이전 Storage 파일 정리 예외 (무시 가능):', delErr)
+            }
+          }
+        } catch (err: unknown) {
+          console.error('Storage 업로드 실패:', err)
+          alert('이미지 업로드에 실패했습니다.')
+          return
         }
-      } catch (err: unknown) {
-        console.error('Storage 업로드 실패:', err)
-        alert('이미지 업로드에 실패했습니다.')
-        setLoading(false)
-        return
+      } else if (localPreviewUrl) {
+        // 2단계: 이미지 파일 변경은 없지만 기존 프리뷰(기존 업로드 URL)가 유지되어 있는 경우 -> getPostImageUrl로 안전한 전체 URL 보장
+        finalImageUrl = getPostImageUrl(existingPost?.image_url || localPreviewUrl)
+      } else {
+        // 3단계: 이미지가 없거나 사용자가 삭제한 경우
+        finalImageUrl = null
       }
-    } else if (localPreviewUrl) {
-      // 2단계: 이미지 파일 변경은 없지만 기존 프리뷰(기존 업로드 URL)가 유지되어 있는 경우 -> getPostImageUrl로 안전한 전체 URL 보장
-      finalImageUrl = getPostImageUrl(existingPost?.image_url || localPreviewUrl)
-    } else {
-      // 3단계: 이미지가 없거나 사용자가 삭제한 경우
-      finalImageUrl = null
+
+      // 2단계: DB UPDATE 또는 INSERT 쿼리 실행
+      if (existingPost) {
+        // 기존 포스트잇 수정 (UPDATE)
+        const { data, error } = await supabase
+          .from('posts')
+          .update({
+            author_name: authorName.trim() || null,
+            content: trimmedContent,
+            image_url: finalImageUrl,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingPost.id)
+          .select()
+          .maybeSingle()
+
+        if (error) {
+          console.error('포스트잇 수정 오류:', error)
+          alert(`수정 처리 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`)
+        } else if (data) {
+          setExistingPost(data)
+          setLocalPreviewUrl(getPostImageUrl(data.image_url) || null)
+          setImageFile(null)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+          setIsSubmitted(true)
+        }
+      } else {
+        // 신규 포스트잇 제출 (INSERT)
+        const { data, error } = await supabase
+          .from('posts')
+          .insert({
+            room_id: room.id,
+            question_id: question.id,
+            author_name: authorName.trim() || null,
+            content: trimmedContent,
+            image_url: finalImageUrl,
+            participant_token: token,
+          })
+          .select()
+          .maybeSingle()
+
+        if (error) {
+          console.error('포스트잇 제출 오류:', error)
+          alert(`제출 처리 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`)
+        } else if (data) {
+          setExistingPost(data)
+          setLocalPreviewUrl(getPostImageUrl(data.image_url) || null)
+          setImageFile(null)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+          setIsSubmitted(true)
+        }
+      }
+    } finally {
+      setLoading(false)
     }
-
-    // 2단계: DB UPDATE 또는 INSERT 쿼리 실행
-    if (existingPost) {
-      // 기존 포스트잇 수정 (UPDATE)
-      const { data, error } = await supabase
-        .from('posts')
-        .update({
-          author_name: authorName.trim() || null,
-          content: trimmedContent,
-          image_url: finalImageUrl,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existingPost.id)
-        .select()
-        .maybeSingle()
-
-      if (error) {
-        console.error('포스트잇 수정 오류:', error)
-        alert(`수정 처리 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`)
-      } else if (data) {
-        setExistingPost(data)
-        setLocalPreviewUrl(getPostImageUrl(data.image_url) || null)
-        setImageFile(null)
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-        setIsSubmitted(true)
-      }
-    } else {
-      // 신규 포스트잇 제출 (INSERT)
-      const { data, error } = await supabase
-        .from('posts')
-        .insert({
-          room_id: room.id,
-          question_id: question.id,
-          author_name: authorName.trim() || null,
-          content: trimmedContent,
-          image_url: finalImageUrl,
-          participant_token: token,
-        })
-        .select()
-        .maybeSingle()
-
-      if (error) {
-        console.error('포스트잇 제출 오류:', error)
-        alert(`제출 처리 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`)
-      } else if (data) {
-        setExistingPost(data)
-        setLocalPreviewUrl(getPostImageUrl(data.image_url) || null)
-        setImageFile(null)
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-        setIsSubmitted(true)
-      }
-    }
-    setLoading(false)
   }
 
   // 로딩 상태 UI
