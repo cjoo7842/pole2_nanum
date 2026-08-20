@@ -55,10 +55,8 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
   const [isStarting, setIsStarting] = useState(false)
   const [selectedPost, setSelectedPost] = useState<Post | null>(null) // 지목/선택 팝업용
   const [presentingPost, setPresentingPost] = useState<Post | null>(null) // 현재 발표 진행 중인 포스트잇 (모달 닫혀도 Floating 바 유지용)
-  const [isPickingAnimation, setIsPickingAnimation] = useState(false) // 3초 슬롯머신 긴장감 애니메이션 활성화 여부
-  const [targetPostForAnimation, setTargetPostForAnimation] = useState<Post | null>(null) // 애니메이션 최종 당첨 포스트잇
-  const [slotDisplayPost, setSlotDisplayPost] = useState<Post | null>(null) // 슬롯머신 롤링 시 화면에 표시되는 포스트잇
-  const [countdownStep, setCountdownStep] = useState<number>(3) // 3, 2, 1, 0(당첨)
+  const [isPickingAnimation, setIsPickingAnimation] = useState(false) // 3초 대기 긴장감 연출 활성화 여부
+  const [targetPostForAnimation, setTargetPostForAnimation] = useState<Post | null>(null) // 지목 대상 포스트잇
   const [isAllCompletedModal, setIsAllCompletedModal] = useState(false) // 모두 나눔 완료 여부 상태
 
   // realtime 콜백 안에서 최신 질문 id를 참조하기 위한 ref
@@ -75,54 +73,11 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     })
   }
 
-  // 지목 시 3초 슬롯머신 긴장감 연출 useEffect
+  // 지목 시 3초 대기 긴장감 연출 ('다음 사람은....' 부유 애니메이션 후 카드 등장 및 폭죽)
   useEffect(() => {
     if (!isPickingAnimation || !targetPostForAnimation) return
 
-    const availablePosts = posts.length > 0 ? posts : [targetPostForAnimation]
-    let intervalTimer: NodeJS.Timeout | null = null
-    let countdownTimer1: NodeJS.Timeout | null = null
-    let countdownTimer2: NodeJS.Timeout | null = null
-    let lockTimer: NodeJS.Timeout | null = null
-    let finishTimer: NodeJS.Timeout | null = null
-
-    setCountdownStep(3)
-    setSlotDisplayPost(availablePosts[Math.floor(Math.random() * availablePosts.length)])
-
-    let intervalMs = 70
-    let isRunning = true
-
-    const cycle = () => {
-      if (!isRunning) return
-      const randomPost = availablePosts[Math.floor(Math.random() * availablePosts.length)]
-      setSlotDisplayPost(randomPost)
-      intervalTimer = setTimeout(cycle, intervalMs)
-    }
-    intervalTimer = setTimeout(cycle, intervalMs)
-
-    // 0.8초 후: 2단계 (2)
-    countdownTimer1 = setTimeout(() => {
-      setCountdownStep(2)
-      intervalMs = 110
-    }, 800)
-
-    // 1.6초 후: 3단계 (1)
-    countdownTimer2 = setTimeout(() => {
-      setCountdownStep(1)
-      intervalMs = 160
-    }, 1600)
-
-    // 2.3초 후: 당첨 고정 및 폭죽 발사!
-    lockTimer = setTimeout(() => {
-      isRunning = false
-      if (intervalTimer) clearTimeout(intervalTimer)
-      setCountdownStep(0)
-      setSlotDisplayPost(targetPostForAnimation)
-      fireConfetti()
-    }, 2300)
-
-    // 3.0초 후: 애니메이션 종료 및 메인 발표 모달 오픈 + DB 업데이트
-    finishTimer = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       const finalPost = { ...targetPostForAnimation, is_selected: true }
       pickedPostIdsRef.current.add(finalPost.id)
 
@@ -134,18 +89,16 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
       setIsPickingAnimation(false)
       setTargetPostForAnimation(null)
 
+      // 포스트잇 등장과 동시에 축하 폭죽 발사
+      fireConfetti()
+
       await supabase.from('posts').update({ is_selected: true }).eq('id', finalPost.id)
     }, 3000)
 
     return () => {
-      isRunning = false
-      if (intervalTimer) clearTimeout(intervalTimer)
-      if (countdownTimer1) clearTimeout(countdownTimer1)
-      if (countdownTimer2) clearTimeout(countdownTimer2)
-      if (lockTimer) clearTimeout(lockTimer)
-      if (finishTimer) clearTimeout(finishTimer)
+      clearTimeout(timer)
     }
-  }, [isPickingAnimation, targetPostForAnimation, posts, supabase])
+  }, [isPickingAnimation, targetPostForAnimation, supabase])
 
   // 특정 질문(questionId)에 해당하는 포스트잇만 불러와 posts state를 교체
   const loadPostsForQuestion = async (questionId: string | null) => {
@@ -464,8 +417,8 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     setIsAllCompletedModal(false)
   }
 
-  // 6. 슬롯머신 지목 시작 처리 ('포스트잇 선택하기' 팝업 버튼 클릭 시 슬롯머신 연출 트리거)
-  const handleStartSlotMachinePick = () => {
+  // 6. 3초 대기 긴장감 지목 시작 처리 ('첫 발표자 선택하기' 팝업 버튼 클릭 시 실행)
+  const handleStartSuspensePick = () => {
     if (isPickingAnimation) return
 
     // 아직 지목되지 않은 포스트잇 우선 필터링
@@ -625,7 +578,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {/* 다음 질문으로 넘어가기 버튼 (요구사항 2) */}
+                  {/* 다음 질문으로 넘어가기 버튼 */}
                   <motion.button
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
@@ -639,7 +592,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
               </div>
             </header>
 
-            {/* ==================== [전원 제출 완료 알림 배너 모달] ==================== */}
+            {/* ==================== [전원 제출 완료 알림 배너 모달] (요구사항 2, 3) ==================== */}
             <AnimatePresence>
               {room?.status === 'IN_PROGRESS' &&
                 participantCount > 0 &&
@@ -661,9 +614,6 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                         <h3 className="font-extrabold text-base sm:text-lg">
                           모든 사람이 제출을 완료했습니다!
                         </h3>
-                        <p className="text-xs text-purple-200 mt-0.5">
-                          접속자 <strong className="text-amber-300 font-bold">{participantCount}명</strong> 모두 나눔을 작성했어요. 포스트잇을 클릭해 나눔을 시작해보세요!
-                        </p>
                       </div>
                     </div>
 
@@ -671,11 +621,11 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
-                        onClick={handleStartSlotMachinePick}
+                        onClick={handleStartSuspensePick}
                         className="flex-1 sm:flex-none px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-purple-950 font-black rounded-xl text-sm shadow-md transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5"
                       >
                         <span>🎲</span>
-                        <span>포스트잇 선택하기!</span>
+                        <span>첫 발표자 선택하기</span>
                       </motion.button>
                       <button
                         onClick={() => setIsAllSubmittedBannerDismissed(true)}
@@ -753,7 +703,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
           </div>
         )}
 
-        {/* ==================== [지목 긴장감 연출: 3초 슬롯머신 / 카운트다운 모달] (요구사항 4) ==================== */}
+        {/* ==================== [지목 긴장감 연출: 3초 대기 부유 애니메이션] (요구사항 4) ==================== */}
         <AnimatePresence>
           {isPickingAnimation && (
             <motion.div
@@ -763,62 +713,26 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
               className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4"
             >
               <motion.div
-                initial={{ scale: 0.8, y: 30 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.8, y: 30 }}
-                transition={{ type: 'spring', bounce: 0.3 }}
-                className="relative max-w-lg w-full bg-gradient-to-b from-purple-950 via-slate-900 to-indigo-950 border-2 border-amber-300/60 p-8 sm:p-10 rounded-[32px] shadow-[0_0_50px_rgba(245,158,11,0.3)] text-center text-white space-y-6 overflow-hidden font-sans"
+                animate={{ y: [0, -14, 0] }}
+                transition={{
+                  repeat: Infinity,
+                  duration: 1.6,
+                  ease: 'easeInOut',
+                }}
+                className="flex flex-col items-center space-y-5 text-center font-sans"
               >
-                {/* 상단 뱃지 및 카운트다운 */}
-                <div className="flex flex-col items-center gap-2">
-                  <motion.div
-                    key={countdownStep}
-                    initial={{ scale: 1.5, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className="w-16 h-16 rounded-full bg-amber-400 text-purple-950 font-black text-3xl flex items-center justify-center shadow-lg shadow-amber-400/30"
-                  >
-                    {countdownStep > 0 ? countdownStep : '🎉'}
-                  </motion.div>
-                  <h3 className="text-xl sm:text-2xl font-black text-amber-300 tracking-wide mt-2">
-                    {countdownStep > 0 ? '🎲 두구두구... 다음 나눔 주인공은?' : '✨ 이번 나눔의 주인공! ✨'}
-                  </h3>
+                <div className="text-6xl sm:text-7xl filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.4)]">
+                  💌
                 </div>
-
-                {/* 슬롯머신 롤링 윈도우 */}
-                <div className="relative bg-black/50 border-2 border-purple-400/40 rounded-2xl p-6 min-h-[140px] flex flex-col items-center justify-center shadow-inner overflow-hidden">
-                  <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-black/40 via-transparent to-black/40" />
-
-                  <AnimatePresence mode="popLayout">
-                    <motion.div
-                      key={slotDisplayPost?.id ? `${slotDisplayPost.id}-${countdownStep}` : countdownStep}
-                      initial={{ y: 25, opacity: 0 }}
-                      animate={{ y: 0, opacity: 1 }}
-                      exit={{ y: -25, opacity: 0 }}
-                      transition={{ duration: 0.08, ease: 'easeOut' }}
-                      className="flex flex-col items-center gap-2 relative z-10 w-full"
-                    >
-                      <span className="text-3xl">🐥</span>
-                      <p className="text-2xl sm:text-3xl font-black text-amber-300 drop-shadow-md">
-                        {slotDisplayPost?.author_name || '참여자'} 님
-                      </p>
-                      {slotDisplayPost?.content && (
-                        <p className="text-xs sm:text-sm text-purple-200 line-clamp-2 max-w-xs break-words">
-                          &quot;{slotDisplayPost.content}&quot;
-                        </p>
-                      )}
-                    </motion.div>
-                  </AnimatePresence>
-                </div>
-
-                <p className="text-xs text-purple-300/80 animate-pulse">
-                  {countdownStep > 0 ? '룰렛이 돌아가고 있습니다...' : '축하합니다! 박수로 맞이해주세요 👏'}
-                </p>
+                <h3 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-widest drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                  다음 사람은....
+                </h3>
               </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* ==================== [발표 진행 중 모달 이탈 시 '발표 이어하기' 플로팅 배너] (요구사항 3) ==================== */}
+        {/* ==================== [발표 진행 중 모달 이탈 시 '발표 이어하기' 플로팅 배너] ==================== */}
         <AnimatePresence>
           {!selectedPost && presentingPost && !isPickingAnimation && (
             <motion.div
@@ -851,7 +765,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                     setPresentingPost(null)
                   }}
                   className="text-white/60 hover:text-white p-1 text-xs cursor-pointer"
-                  title="발표 완료/종료"
+                  title="발표 종료"
                 >
                   ✕
                 </button>
@@ -860,7 +774,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
           )}
         </AnimatePresence>
 
-        {/* ==================== [지목 팝업 모달] ==================== */}
+        {/* ==================== [지목 팝업 모달] (요구사항 1: 내부 버튼 제거) ==================== */}
         <AnimatePresence>
           {selectedPost && (
             <motion.div
@@ -914,37 +828,6 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
 
                 <div className="text-right font-bold text-purple-950 text-base">
                   — {selectedPost.author_name || '익명'}
-                </div>
-
-                {/* 하단 제어 영역 */}
-                <div className="pt-4 border-t border-purple-100 flex flex-col sm:flex-row gap-2.5 items-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedPost(null)
-                      setPresentingPost(null)
-                    }}
-                    className="w-full sm:flex-1 h-[50px] bg-purple-100 hover:bg-purple-200 text-purple-950 font-bold rounded-xl transition-colors text-sm cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <span>발표 완료 👏</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedPost(null)
-                      handleStartSlotMachinePick()
-                    }}
-                    className="w-full sm:flex-1 h-[50px] bg-amber-400 hover:bg-amber-300 text-purple-950 font-black rounded-xl shadow-md transition-all text-sm cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <span>🎲 다음 사람 뽑기</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleGoToNextQuestion}
-                    className="w-full sm:flex-1 h-[50px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-sm cursor-pointer transition-all flex items-center justify-center gap-1.5"
-                  >
-                    <span>다음 질문 →</span>
-                  </button>
                 </div>
               </motion.div>
             </motion.div>
