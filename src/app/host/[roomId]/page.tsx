@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState, use } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { RealtimePostgresInsertPayload, RealtimePostgresUpdatePayload } from '@supabase/supabase-js'
+import {
+  RealtimePostgresInsertPayload,
+  RealtimePostgresUpdatePayload,
+  RealtimePostgresDeletePayload,
+} from '@supabase/supabase-js'
 import confetti from 'canvas-confetti'
 
 // 타입 정의
@@ -123,60 +127,143 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
 
-  // 2. Realtime 구독 (포스트잇 실시간 생성/수신/수정 및 방 상태 변경 감지)
+  // 2. Realtime 구독 (포스트잇 실시간 생성/수신/수정 및 방 상태 변경 감지) + 이중 안전장치
   useEffect(() => {
-    // 포스트잇 변경사항 구독 (INSERT 및 UPDATE 모두 감지)
-    const postsChannel = supabase
-      .channel(`realtime-posts-${roomId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'posts', filter: `room_id=eq.${roomId}` },
-        (payload: RealtimePostgresInsertPayload<Post>) => {
-          const newPost = payload.new as Post
-          if (newPost.question_id !== currentQuestionIdRef.current) return
-          setPosts((prev) => [...prev, newPost])
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'posts', filter: `room_id=eq.${roomId}` },
-        (payload: RealtimePostgresUpdatePayload<Post>) => {
-          const updatedPost = payload.new as Post
-          if (updatedPost.question_id !== currentQuestionIdRef.current) return
+    let isMounted = true
+    let postsChannel: ReturnType<typeof supabase.channel> | null = null
+    let roomChannel: ReturnType<typeof supabase.channel> | null = null
+    let postsRetryTimer: NodeJS.Timeout | null = null
+    let roomRetryTimer: NodeJS.Timeout | null = null
 
-          // 목록 내 해당 포스트잇 최신 데이터로 업데이트
-          setPosts((prev) =>
-            prev.map((post) => (post.id === updatedPost.id ? updatedPost : post))
-          )
+    // 2-1. 포스트잇 변경사항 실시간 구독
+    const setupPostsChannel = () => {
+      if (!isMounted) return
+      if (postsChannel) supabase.removeChannel(postsChannel)
 
-          // 만약 현재 열려있는 지목 팝업의 포스트잇이라면 팝업 내부도 실시간 업데이트
-          setSelectedPost((prevSelected) =>
-            prevSelected && prevSelected.id === updatedPost.id ? updatedPost : prevSelected
-          )
-        }
-      )
-      .subscribe()
-
-    // 방 상태 변경 구독
-    const roomChannel = supabase
-      .channel(`realtime-room-${roomId}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
-        async (payload: RealtimePostgresUpdatePayload<Room>) => {
-          const updatedRoom = payload.new as Room
-          setRoom(updatedRoom)
-
-          if (updatedRoom.current_question_id !== currentQuestionIdRef.current) {
-            await loadQuestionAndPosts(updatedRoom.current_question_id ?? null)
+      const channelName = `realtime-posts-${roomId}-${Date.now()}`
+      postsChannel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'posts', filter: `room_id=eq.${roomId}` },
+          (payload: RealtimePostgresInsertPayload<Post>) => {
+            const newPost = payload.new as Post
+            if (newPost.question_id !== currentQuestionIdRef.current) return
+            setPosts((prev) => {
+              if (prev.some((p) => p.id === newPost.id)) return prev
+              return [...prev, newPost]
+            })
           }
-        }
-      )
-      .subscribe()
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'posts', filter: `room_id=eq.${roomId}` },
+          (payload: RealtimePostgresUpdatePayload<Post>) => {
+            const updatedPost = payload.new as Post
+            if (updatedPost.question_id !== currentQuestionIdRef.current) return
+
+            setPosts((prev) =>
+              prev.map((post) => (post.id === updatedPost.id ? updatedPost : post))
+            )
+
+            setSelectedPost((prevSelected) =>
+              prevSelected && prevSelected.id === updatedPost.id ? updatedPost : prevSelected
+            )
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'DELETE', schema: 'public', table: 'posts', filter: `room_id=eq.${roomId}` },
+          (payload: RealtimePostgresDeletePayload<Post>) => {
+            const deletedId = (payload.old as { id?: string })?.id
+            if (deletedId) {
+              setPosts((prev) => prev.filter((p) => p.id !== deletedId))
+              setSelectedPost((prev) => (prev && prev.id === deletedId ? null : prev))
+            }
+          }
+        )
+        .subscribe((status: string, err?: Error | null) => {
+          if (status === 'SUBSCRIBED') {
+            console.log(`[Realtime Host Posts] 구독 성공 (${channelName})`)
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn(`[Realtime Host Posts] 채널 상태 [${status}], error:`, err)
+            if (isMounted) {
+              if (postsRetryTimer) clearTimeout(postsRetryTimer)
+              postsRetryTimer = setTimeout(() => {
+                console.log('[Realtime Host Posts] 채널 재구독 시도...')
+                setupPostsChannel()
+              }, 2000)
+            }
+          }
+        })
+    }
+
+    // 2-2. 방 상태 변경 실시간 구독
+    const setupRoomChannel = () => {
+      if (!isMounted) return
+      if (roomChannel) supabase.removeChannel(roomChannel)
+
+      const channelName = `realtime-room-${roomId}-${Date.now()}`
+      roomChannel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
+          async (payload: RealtimePostgresUpdatePayload<Room>) => {
+            const updatedRoom = payload.new as Room
+            setRoom(updatedRoom)
+
+            if (updatedRoom.current_question_id !== currentQuestionIdRef.current) {
+              await loadQuestionAndPosts(updatedRoom.current_question_id ?? null)
+            }
+          }
+        )
+        .subscribe((status: string, err?: Error | null) => {
+          if (status === 'SUBSCRIBED') {
+            console.log(`[Realtime Host Room] 구독 성공 (${channelName})`)
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn(`[Realtime Host Room] 채널 상태 [${status}], error:`, err)
+            if (isMounted) {
+              if (roomRetryTimer) clearTimeout(roomRetryTimer)
+              roomRetryTimer = setTimeout(() => {
+                console.log('[Realtime Host Room] 채널 재구독 시도...')
+                setupRoomChannel()
+              }, 2000)
+            }
+          }
+        })
+    }
+
+    setupPostsChannel()
+    setupRoomChannel()
+
+    // 안전장치 1: 탭/창 재활성화 시 포스트잇 및 방 상태 재검증
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible' && currentQuestionIdRef.current) {
+        console.log('[Sync Host] 탭 활성화 감지 -> 포스트잇 최신화')
+        loadPostsForQuestion(currentQuestionIdRef.current)
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus)
+    window.addEventListener('focus', handleVisibilityOrFocus)
+
+    // 안전장치 2: 5초 간격 간이 Polling으로 대규모 동시 제출 누락 완전 방지
+    const pollingInterval = setInterval(() => {
+      if (document.visibilityState === 'visible' && currentQuestionIdRef.current) {
+        loadPostsForQuestion(currentQuestionIdRef.current)
+      }
+    }, 5000)
 
     return () => {
-      supabase.removeChannel(postsChannel)
-      supabase.removeChannel(roomChannel)
+      isMounted = false
+      if (postsRetryTimer) clearTimeout(postsRetryTimer)
+      if (roomRetryTimer) clearTimeout(roomRetryTimer)
+      clearInterval(pollingInterval)
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus)
+      window.removeEventListener('focus', handleVisibilityOrFocus)
+      if (postsChannel) supabase.removeChannel(postsChannel)
+      if (roomChannel) supabase.removeChannel(roomChannel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])

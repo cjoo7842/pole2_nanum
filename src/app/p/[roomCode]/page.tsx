@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import imageCompression from 'browser-image-compression'
 import { createClient } from '@/lib/supabase/client'
+import { RealtimePostgresUpdatePayload } from '@supabase/supabase-js'
 import { Room, Question, Post } from '@/types/database'
 
 // 명세서: "멀티라인 작성(최대 300자)"
@@ -27,7 +28,7 @@ export default function ParticipantPage() {
   const [loading, setLoading] = useState<boolean>(true)
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false)
 
-  // 1. 참가자 식별 토큰 생성 및 로드
+  // 1. 참가자 식별 토큰 및 이전 입력한 닉네임 로드
   useEffect(() => {
     let pToken = localStorage.getItem('participant_token')
     if (!pToken) {
@@ -35,91 +36,189 @@ export default function ParticipantPage() {
       localStorage.setItem('participant_token', pToken)
     }
     setToken(pToken)
+
+    const savedName = localStorage.getItem('participant_name')
+    if (savedName) {
+      setAuthorName(savedName)
+    }
   }, [])
 
-  // 2. 방, 질문 및 기존 작성 포스트잇 정보 조회
-  const fetchRoomAndQuestion = async () => {
-    if (!roomCode) return
-    setLoading(true)
-
-    // 방 정보 조회
-    const { data: roomData } = await supabase
-      .from('rooms')
-      .select('*')
-      .eq('room_code', roomCode)
-      .maybeSingle()
-
-    if (roomData) {
-      setRoom(roomData)
-
-      if (roomData.current_question_id) {
-        // 현재 질문 정보 조회
-        const { data: questionData } = await supabase
-          .from('questions')
-          .select('*')
-          .eq('id', roomData.current_question_id)
-          .maybeSingle()
-
-        setQuestion(questionData)
-
-        // 작성된 포스트잇 조회
-        const pToken = localStorage.getItem('participant_token')
-        if (pToken) {
-          const { data: postData } = await supabase
-            .from('posts')
-            .select('*')
-            .eq('room_id', roomData.id)
-            .eq('question_id', roomData.current_question_id)
-            .eq('participant_token', pToken)
-            .maybeSingle()
-
-          if (postData) {
-            setExistingPost(postData)
-            setAuthorName(postData.author_name || '')
-            setContent(postData.content || '')
-            setImagePreview(postData.image_url)
-            setIsSubmitted(true)
-          } else {
-            setExistingPost(null)
-            setIsSubmitted(false)
-            setContent('')
-            setImagePreview(null)
-            setImageFile(null)
-          }
-        }
-      } else {
-        setQuestion(null)
-      }
-    } else {
-      setRoom(null)
+  // 이미지 압축 유틸 함수 (요구사항: 최대 가로/세로 1024px, 용량 1MB 이하)
+  const compressImage = async (file: File): Promise<File> => {
+    const options = {
+      maxSizeMB: 1, // 최대 용량 1MB 이하
+      maxWidthOrHeight: 1024, // 최대 가로/세로 1024px
+      useWebWorker: true,
+      initialQuality: 0.85,
     }
-    setLoading(false)
+    try {
+      const compressed = await imageCompression(file, options)
+      console.log(`[Image Compression] 원본: ${(file.size / 1024).toFixed(1)}KB -> 압축: ${(compressed.size / 1024).toFixed(1)}KB`)
+      return compressed
+    } catch (error) {
+      console.warn('browser-image-compression 실패, 원본 파일로 유지:', error)
+      return file
+    }
   }
 
-  // 3. Room Realtime 구독 동기화
+  // 2. 방, 질문 및 기존 작성 포스트잇 정보 조회 (isSilent: 백그라운드 동기화 시 전체 로딩 스피너 깜빡임 방지)
+  const fetchRoomAndQuestion = async (isSilent = false) => {
+    if (!roomCode) return
+    if (!isSilent) setLoading(true)
+
+    try {
+      // 방 정보 조회
+      const { data: roomData, error: roomError } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('room_code', roomCode)
+        .maybeSingle()
+
+      if (roomError) {
+        console.error('방 정보 조회 오류:', roomError)
+        if (!isSilent) setLoading(false)
+        return
+      }
+
+      if (roomData) {
+        setRoom(roomData)
+
+        if (roomData.current_question_id) {
+          // 현재 질문 정보 조회
+          const { data: questionData } = await supabase
+            .from('questions')
+            .select('*')
+            .eq('id', roomData.current_question_id)
+            .maybeSingle()
+
+          setQuestion(questionData || null)
+
+          // 작성된 포스트잇 조회 (현재 참가자 토큰 기준)
+          const pToken = localStorage.getItem('participant_token') || token
+          if (pToken) {
+            const { data: postData } = await supabase
+              .from('posts')
+              .select('*')
+              .eq('room_id', roomData.id)
+              .eq('question_id', roomData.current_question_id)
+              .eq('participant_token', pToken)
+              .maybeSingle()
+
+            if (postData) {
+              setExistingPost(postData)
+              if (postData.author_name) setAuthorName(postData.author_name)
+              setContent(postData.content || '')
+              setImagePreview(postData.image_url || null)
+              setImageFile(null)
+              setIsSubmitted(true)
+            } else {
+              setExistingPost(null)
+              setIsSubmitted(false)
+              setContent('')
+              setImagePreview(null)
+              setImageFile(null)
+            }
+          }
+        } else {
+          setQuestion(null)
+          setExistingPost(null)
+        }
+      } else {
+        setRoom(null)
+      }
+    } catch (err) {
+      console.error('fetchRoomAndQuestion 처리 중 예외 발생:', err)
+    } finally {
+      if (!isSilent) setLoading(false)
+    }
+  }
+
+  // 3. Room Realtime 구독 및 이중 안전장치 (자동 재구독 + visibilitychange + 6초 주기적 Polling)
   useEffect(() => {
     if (!roomCode) return
 
-    fetchRoomAndQuestion()
+    // 최초 1회 화면 진입 시 데이터 로드
+    fetchRoomAndQuestion(false)
 
-    const channel = supabase
-      .channel(`room-status-${roomCode}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'rooms',
-          filter: `room_code=eq.${roomCode}`,
-        },
-        () => {
-          fetchRoomAndQuestion()
-        }
-      )
-      .subscribe()
+    let isMounted = true
+    let activeChannel: ReturnType<typeof supabase.channel> | null = null
+    let retryTimer: NodeJS.Timeout | null = null
+
+    const setupRealtimeChannel = () => {
+      if (!isMounted) return
+
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel)
+      }
+
+      const channelName = `room-status-${roomCode}-${Date.now()}`
+      const channel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'rooms',
+            filter: `room_code=eq.${roomCode}`,
+          },
+          (payload: RealtimePostgresUpdatePayload<Room>) => {
+            console.log('[Realtime Participant] 방 상태 변경 수신:', payload)
+            fetchRoomAndQuestion(true)
+          }
+        )
+        .subscribe((status: string, err?: Error | null) => {
+          if (status === 'SUBSCRIBED') {
+            console.log(`[Realtime Participant] 구독 성공 (${channelName})`)
+          } else if (
+            status === 'CLOSED' ||
+            status === 'CHANNEL_ERROR' ||
+            status === 'TIMED_OUT'
+          ) {
+            console.warn(`[Realtime Participant] 채널 상태 비정상 [${status}]:`, err)
+            if (isMounted) {
+              if (retryTimer) clearTimeout(retryTimer)
+              // 소켓 끊김 감지 시 1.5초 후 자동 재구독 시도
+              retryTimer = setTimeout(() => {
+                console.log('[Realtime Participant] 채널 재구독 시도...')
+                setupRealtimeChannel()
+              }, 1500)
+            }
+          }
+        })
+
+      activeChannel = channel
+    }
+
+    setupRealtimeChannel()
+
+    // 안전장치 1: 모바일 화면 켜짐/탭 재활성화(visibilitychange) 및 포커스(focus) 시 동기화
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[Sync Participant] 탭 활성화 감지 -> 방/질문 동기화 검증')
+        fetchRoomAndQuestion(true)
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus)
+    window.addEventListener('focus', handleVisibilityOrFocus)
+
+    // 안전장치 2: 6초 간격 간이 Polling으로 질문 전환 유실 방지
+    const pollingInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchRoomAndQuestion(true)
+      }
+    }, 6000)
 
     return () => {
-      supabase.removeChannel(channel)
+      isMounted = false
+      if (retryTimer) clearTimeout(retryTimer)
+      clearInterval(pollingInterval)
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus)
+      window.removeEventListener('focus', handleVisibilityOrFocus)
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode])
@@ -143,7 +242,13 @@ export default function ParticipantPage() {
     }
   }
 
-  // 4. 포스트잇 제출/수정 핸들러
+  // 이미지 첨부 취소/삭제 핸들러
+  const handleRemoveImage = () => {
+    setImageFile(null)
+    setImagePreview(null)
+  }
+
+  // 4. 포스트잇 제출/수정 핸들러 (이미지 URL 누락 방지 및 비동기 순서 보장)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!room || !question || !token) return
@@ -160,13 +265,41 @@ export default function ParticipantPage() {
       return
     }
 
-    setLoading(true)
-    let imageUrl = imagePreview
+    // 닉네임 로컬 저장 (다음 질문에서도 자동 유지)
+    if (authorName.trim()) {
+      localStorage.setItem('participant_name', authorName.trim())
+    }
 
-    // 신규 이미지 파일 업로드 시
+    setLoading(true)
+    let finalImageUrl: string | null = null
+
+    // 1단계: 신규 이미지 파일이 있는 경우 -> 압축 및 Storage 업로드
     if (imageFile) {
       try {
-        if (existingPost?.image_url) {
+        const compressedFile = await compressImage(imageFile)
+        const fileExt = compressedFile.name.split('.').pop() || 'jpg'
+        const filePath = `${room.id}/${crypto.randomUUID()}.${fileExt}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('post-images')
+          .upload(filePath, compressedFile, {
+            cacheControl: '3600',
+            upsert: false,
+          })
+
+        if (uploadError) {
+          console.error('Storage 업로드 실패:', uploadError)
+          throw uploadError
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('post-images')
+          .getPublicUrl(filePath)
+
+        finalImageUrl = publicUrlData.publicUrl
+
+        // 이전 이미지가 존재하고 새 이미지로 교체된 경우, 이전 Storage 파일 정리
+        if (existingPost?.image_url && existingPost.image_url !== finalImageUrl) {
           try {
             const oldUrl = new URL(existingPost.image_url)
             const pathSegments = oldUrl.pathname.split('/post-images/')
@@ -174,81 +307,71 @@ export default function ParticipantPage() {
               const oldFilePath = pathSegments[1]
               await supabase.storage.from('post-images').remove([oldFilePath])
             }
-          } catch (deleteError) {
-            console.warn('기존 Storage 파일 삭제 예외 처리:', deleteError)
+          } catch (delErr) {
+            console.warn('이전 Storage 파일 정리 예외 (무시 가능):', delErr)
           }
         }
-
-        const options = {
-          maxSizeMB: 1,
-          maxWidthOrHeight: 1200,
-          useWebWorker: true,
-        }
-        const compressedFile = await imageCompression(imageFile, options)
-        const fileExt = compressedFile.name.split('.').pop()
-        const filePath = `${room.id}/${crypto.randomUUID()}.${fileExt}`
-
-        const { error: uploadError } = await supabase.storage
-          .from('post-images')
-          .upload(filePath, compressedFile)
-
-        if (uploadError) throw uploadError
-
-        const { data: publicUrlData } = supabase.storage
-          .from('post-images')
-          .getPublicUrl(filePath)
-
-        imageUrl = publicUrlData.publicUrl
-      } catch (err) {
-        console.error('이미지 업로드 오류:', err)
-        alert('이미지 업로드에 실패했습니다.')
+      } catch (err: any) {
+        console.error('이미지 압축 및 업로드 오류:', err)
+        alert(`이미지 업로드에 실패했습니다: ${err?.message || '네트워크 오류'}`)
         setLoading(false)
         return
       }
+    } else if (imagePreview) {
+      // 2단계: 이미지 파일 변경은 없지만 기존 프리뷰(기존 업로드 URL)가 유지되어 있는 경우 -> 기존 image_url 그대로 보존
+      finalImageUrl = existingPost?.image_url || imagePreview
+    } else {
+      // 3단계: 이미지가 없거나 사용자가 삭제한 경우
+      finalImageUrl = null
     }
 
+    // 2단계: DB UPDATE 또는 INSERT 쿼리 실행
     if (existingPost) {
-      // 기존 포스트잇 수정
+      // 기존 포스트잇 수정 (UPDATE)
       const { data, error } = await supabase
         .from('posts')
         .update({
-          author_name: authorName,
+          author_name: authorName.trim() || null,
           content: trimmedContent,
-          image_url: imageUrl,
+          image_url: finalImageUrl,
           updated_at: new Date().toISOString(),
         })
         .eq('id', existingPost.id)
         .select()
         .maybeSingle()
 
-      if (!error && data) {
+      if (error) {
+        console.error('포스트잇 수정 오류:', error)
+        alert(`수정 처리 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`)
+      } else if (data) {
         setExistingPost(data)
-        setIsSubmitted(true)
+        setImagePreview(data.image_url || null)
         setImageFile(null)
-      } else {
-        alert('수정 처리 중 오류가 발생했습니다.')
+        setIsSubmitted(true)
       }
     } else {
-      // 신규 포스트잇 제출
+      // 신규 포스트잇 제출 (INSERT)
       const { data, error } = await supabase
         .from('posts')
         .insert({
           room_id: room.id,
           question_id: question.id,
-          author_name: authorName,
+          author_name: authorName.trim() || null,
           content: trimmedContent,
-          image_url: imageUrl,
+          image_url: finalImageUrl,
           participant_token: token,
         })
         .select()
         .maybeSingle()
 
-      if (!error && data) {
+      if (error) {
+        console.error('포스트잇 제출 오류:', error)
+        alert(`제출 처리 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`)
+      } else if (data) {
         setExistingPost(data)
-        setIsSubmitted(true)
+        setImagePreview(data.image_url || null)
         setImageFile(null)
-      } else {
-        alert('제출 처리 중 오류가 발생했습니다.')
+        setIsSubmitted(true)
       }
     }
     setLoading(false)
@@ -404,12 +527,20 @@ export default function ParticipantPage() {
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-100 file:text-purple-900 hover:file:bg-purple-200 transition-all cursor-pointer"
                 />
                 {imagePreview && (
-                  <div className="mt-3 relative w-full h-36 rounded-xl overflow-hidden bg-slate-100 border border-purple-100">
+                  <div className="mt-3 relative w-full h-36 rounded-xl overflow-hidden bg-slate-100 border border-purple-100 group">
                     <img
                       src={imagePreview}
                       alt="미리보기"
                       className="w-full h-full object-cover"
                     />
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      title="사진 삭제"
+                      className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs font-bold transition-colors cursor-pointer shadow-md"
+                    >
+                      ✕
+                    </button>
                   </div>
                 )}
               </div>
