@@ -417,27 +417,28 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     setIsAllCompletedModal(false)
   }
 
-  // 6. 3초 대기 긴장감 지목 시작 처리 ('첫 발표자 선택하기' 팝업 버튼 클릭 시 실행)
+  // 6. 3초 대기 긴장감 지목 시작 처리 ('첫 발표자 선택하기' 또는 '다음 사람 지목' 클릭 시 실행)
   const handleStartSuspensePick = () => {
     if (isPickingAnimation) return
 
-    // 아직 지목되지 않은 포스트잇 우선 필터링
+    // 1단계: 아직 한 번도 지목되지 않은 대상만 엄격히 필터링 (비복원 추출)
     const unselected = posts.filter(
       (p) => !p.is_selected && !pickedPostIdsRef.current.has(p.id)
     )
 
-    let targetPost: Post | null = null
-    if (unselected.length > 0) {
-      const randomIndex = Math.floor(Math.random() * unselected.length)
-      targetPost = unselected[randomIndex]
-    } else if (posts.length > 0) {
-      const randomIndex = Math.floor(Math.random() * posts.length)
-      targetPost = posts[randomIndex]
-    } else {
-      alert('제출된 포스트잇이 없습니다!')
+    if (unselected.length === 0) {
+      if (posts.length === 0) {
+        alert('아직 제출된 포스트잇이 없습니다!')
+      } else {
+        alert('모든 참여자가 나눔을 완료했습니다! 🎉')
+      }
       return
     }
 
+    const randomIndex = Math.floor(Math.random() * unselected.length)
+    const targetPost = unselected[randomIndex]
+
+    setSelectedPost(null) // 현재 열려있는 모달 닫기
     setIsAllSubmittedBannerDismissed(true)
     setIsAllCompletedModal(false)
     setTargetPostForAnimation(targetPost)
@@ -828,6 +829,19 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
 
                 <div className="text-right font-bold text-purple-950 text-base">
                   — {selectedPost.author_name || '익명'}
+                </div>
+
+                {/* 하단 제어 영역: 다음 사람 지목 버튼 */}
+                <div className="pt-4 border-t border-purple-100 flex items-center justify-center">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleStartSuspensePick}
+                    className="w-full h-[52px] bg-gradient-to-r from-purple-900 via-indigo-900 to-purple-950 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-base cursor-pointer transition-all flex items-center justify-center gap-2"
+                  >
+                    <span>🎲</span>
+                    <span>다음 사람 지목</span>
+                  </motion.button>
                 </div>
               </motion.div>
             </motion.div>
