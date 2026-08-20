@@ -455,22 +455,39 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     }
   }
 
-  // 5. 포스트잇 카드 클릭 처리 (3초 슬롯머신 긴장감 연출 트리거)
+  // 5. 포스트잇 카드 클릭 처리: 클릭한 포스트잇을 즉시 확대해서 전체 내용을 확인
   const handleCardClick = (post: Post) => {
     if (isPickingAnimation) return
 
-    // 이미 발표 완료/지목된 카드를 다시 열어보는 경우 바로 모달 오픈
-    if (post.is_selected && pickedPostIdsRef.current.has(post.id)) {
-      setSelectedPost(post)
-      setPresentingPost(post)
-      setIsAllCompletedModal(false)
+    setSelectedPost(post)
+    setPresentingPost(post)
+    setIsAllCompletedModal(false)
+  }
+
+  // 6. 슬롯머신 지목 시작 처리 ('포스트잇 선택하기' 팝업 버튼 클릭 시 슬롯머신 연출 트리거)
+  const handleStartSlotMachinePick = () => {
+    if (isPickingAnimation) return
+
+    // 아직 지목되지 않은 포스트잇 우선 필터링
+    const unselected = posts.filter(
+      (p) => !p.is_selected && !pickedPostIdsRef.current.has(p.id)
+    )
+
+    let targetPost: Post | null = null
+    if (unselected.length > 0) {
+      const randomIndex = Math.floor(Math.random() * unselected.length)
+      targetPost = unselected[randomIndex]
+    } else if (posts.length > 0) {
+      const randomIndex = Math.floor(Math.random() * posts.length)
+      targetPost = posts[randomIndex]
+    } else {
+      alert('제출된 포스트잇이 없습니다!')
       return
     }
 
-    // 신규 지목인 경우: 3초 슬롯머신 긴장감 연출 시작!
     setIsAllSubmittedBannerDismissed(true)
     setIsAllCompletedModal(false)
-    setTargetPostForAnimation(post)
+    setTargetPostForAnimation(targetPost)
     setIsPickingAnimation(true)
   }
 
@@ -654,10 +671,11 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
-                        onClick={() => setIsAllSubmittedBannerDismissed(true)}
-                        className="flex-1 sm:flex-none px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-purple-950 font-black rounded-xl text-sm shadow-md transition-all cursor-pointer whitespace-nowrap"
+                        onClick={handleStartSlotMachinePick}
+                        className="flex-1 sm:flex-none px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-purple-950 font-black rounded-xl text-sm shadow-md transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5"
                       >
-                        포스트잇 선택하기 👇
+                        <span>🎲</span>
+                        <span>포스트잇 선택하기!</span>
                       </motion.button>
                       <button
                         onClick={() => setIsAllSubmittedBannerDismissed(true)}
@@ -899,23 +917,33 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                 </div>
 
                 {/* 하단 제어 영역 */}
-                <div className="pt-4 border-t border-purple-100 flex flex-col sm:flex-row gap-3 items-center">
+                <div className="pt-4 border-t border-purple-100 flex flex-col sm:flex-row gap-2.5 items-center">
                   <button
                     type="button"
                     onClick={() => {
                       setSelectedPost(null)
                       setPresentingPost(null)
                     }}
-                    className="w-full sm:flex-1 h-[52px] bg-purple-100 hover:bg-purple-200 text-purple-950 font-bold rounded-xl transition-colors text-base cursor-pointer flex items-center justify-center gap-1.5"
+                    className="w-full sm:flex-1 h-[50px] bg-purple-100 hover:bg-purple-200 text-purple-950 font-bold rounded-xl transition-colors text-sm cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <span>발표 완료 👏</span>
                   </button>
                   <button
                     type="button"
-                    onClick={handleGoToNextQuestion}
-                    className="w-full sm:flex-1 h-[52px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-base cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                    onClick={() => {
+                      setSelectedPost(null)
+                      handleStartSlotMachinePick()
+                    }}
+                    className="w-full sm:flex-1 h-[50px] bg-amber-400 hover:bg-amber-300 text-purple-950 font-black rounded-xl shadow-md transition-all text-sm cursor-pointer flex items-center justify-center gap-1.5"
                   >
-                    <span>다음 질문으로 이동 →</span>
+                    <span>🎲 다음 사람 뽑기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGoToNextQuestion}
+                    className="w-full sm:flex-1 h-[50px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-sm cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <span>다음 질문 →</span>
                   </button>
                 </div>
               </motion.div>
