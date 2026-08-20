@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import imageCompression from 'browser-image-compression'
 import { createClient } from '@/lib/supabase/client'
@@ -27,7 +27,8 @@ export default function ParticipantPage() {
 
   const [content, setContent] = useState<string>('')
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [loading, setLoading] = useState<boolean>(true)
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false)
@@ -141,15 +142,21 @@ export default function ParticipantPage() {
               setExistingPost(postData)
               if (postData.author_name) setAuthorName(postData.author_name)
               setContent(postData.content || '')
-              setImagePreview(getPostImageUrl(postData.image_url) || null)
+              setLocalPreviewUrl(getPostImageUrl(postData.image_url) || null)
               setImageFile(null)
+              if (fileInputRef.current) {
+                fileInputRef.current.value = ''
+              }
               setIsSubmitted(true)
             } else {
               setExistingPost(null)
               setIsSubmitted(false)
               setContent('')
-              setImagePreview(null)
+              setLocalPreviewUrl(null)
               setImageFile(null)
+              if (fileInputRef.current) {
+                fileInputRef.current.value = ''
+              }
             }
           }
         } else {
@@ -271,14 +278,18 @@ export default function ParticipantPage() {
     const file = e.target.files?.[0]
     if (file) {
       setImageFile(file)
-      setImagePreview(URL.createObjectURL(file))
+      const previewUrl = URL.createObjectURL(file)
+      setLocalPreviewUrl(previewUrl)
     }
   }
 
   // 이미지 첨부 취소/삭제 핸들러
   const handleRemoveImage = () => {
     setImageFile(null)
-    setImagePreview(null)
+    setLocalPreviewUrl(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   // 4. 포스트잇 제출/수정 핸들러 (이미지 URL 누락 방지 및 비동기 순서 보장)
@@ -288,7 +299,7 @@ export default function ParticipantPage() {
 
     const trimmedContent = content.trim()
 
-    if (!trimmedContent && !imageFile && !imagePreview) {
+    if (!trimmedContent && !imageFile && !localPreviewUrl) {
       alert('내용이나 사진을 작성해 주세요!')
       return
     }
@@ -310,30 +321,38 @@ export default function ParticipantPage() {
     if (imageFile) {
       try {
         const compressedFile = await compressImage(imageFile)
-        const fileExt = compressedFile.name.split('.').pop() || 'jpg'
+        const fileExt = imageFile.name.split('.').pop()?.toLowerCase() || 'jpg'
         const filePath = `${room.id}/${crypto.randomUUID()}.${fileExt}`
 
-        const { error: uploadError } = await supabase.storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
           .from('post-images')
           .upload(filePath, compressedFile, {
+            contentType: imageFile.type || 'image/jpeg',
             cacheControl: '3600',
             upsert: false,
           })
 
         if (uploadError) {
           console.error('Storage 업로드 실패:', uploadError)
-          throw uploadError
+          alert('이미지 업로드에 실패했습니다.')
+          setLoading(false)
+          return
         }
 
+        // 업로드 성공 후 getPublicUrl 호출
         const { data: publicUrlData } = supabase.storage
           .from('post-images')
           .getPublicUrl(filePath)
 
         if (!publicUrlData?.publicUrl) {
-          throw new Error('이미지 Public URL을 가져오지 못했습니다.')
+          console.error('Storage Public URL 추출 실패')
+          alert('이미지 업로드에 실패했습니다.')
+          setLoading(false)
+          return
         }
 
         finalImageUrl = publicUrlData.publicUrl
+        console.log('이미지 업로드 성공:', finalImageUrl)
 
         // 이전 이미지가 존재하고 새 이미지로 교체된 경우, 이전 Storage 파일 정리
         if (existingPost?.image_url && existingPost.image_url !== finalImageUrl) {
@@ -349,14 +368,14 @@ export default function ParticipantPage() {
           }
         }
       } catch (err: any) {
-        console.error('이미지 압축 및 업로드 오류:', err)
-        alert(`이미지 업로드에 실패했습니다: ${err?.message || '네트워크 오류'}`)
+        console.error('Storage 업로드 실패:', err)
+        alert('이미지 업로드에 실패했습니다.')
         setLoading(false)
         return
       }
-    } else if (imagePreview) {
+    } else if (localPreviewUrl) {
       // 2단계: 이미지 파일 변경은 없지만 기존 프리뷰(기존 업로드 URL)가 유지되어 있는 경우 -> getPostImageUrl로 안전한 전체 URL 보장
-      finalImageUrl = getPostImageUrl(existingPost?.image_url || imagePreview)
+      finalImageUrl = getPostImageUrl(existingPost?.image_url || localPreviewUrl)
     } else {
       // 3단계: 이미지가 없거나 사용자가 삭제한 경우
       finalImageUrl = null
@@ -382,8 +401,11 @@ export default function ParticipantPage() {
         alert(`수정 처리 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`)
       } else if (data) {
         setExistingPost(data)
-        setImagePreview(data.image_url || null)
+        setLocalPreviewUrl(getPostImageUrl(data.image_url) || null)
         setImageFile(null)
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
         setIsSubmitted(true)
       }
     } else {
@@ -406,8 +428,11 @@ export default function ParticipantPage() {
         alert(`제출 처리 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`)
       } else if (data) {
         setExistingPost(data)
-        setImagePreview(data.image_url || null)
+        setLocalPreviewUrl(getPostImageUrl(data.image_url) || null)
         setImageFile(null)
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
         setIsSubmitted(true)
       }
     }
@@ -626,27 +651,25 @@ export default function ParticipantPage() {
                   사진 첨부 (선택)
                 </label>
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept="image/*"
                   onChange={handleImageChange}
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-100 file:text-purple-900 hover:file:bg-purple-200 transition-all cursor-pointer"
                 />
-                {imagePreview && isValidImageUrl(imagePreview) && (
-                  <div className="mt-3 relative w-full h-36 rounded-xl overflow-hidden bg-slate-100 border border-purple-100 group">
+                {localPreviewUrl && (
+                  <div className="mt-3 relative w-full h-44 rounded-2xl overflow-hidden bg-slate-100 border border-purple-100 group shadow-inner flex items-center justify-center">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={imagePreview}
-                      alt="첨부 이미지"
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLElement).style.display = 'none'
-                      }}
+                      src={localPreviewUrl}
+                      alt="첨부 이미지 미리보기"
+                      className="w-full h-full object-cover rounded-2xl"
                     />
                     <button
                       type="button"
                       onClick={handleRemoveImage}
                       title="사진 삭제"
-                      className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs font-bold transition-colors cursor-pointer shadow-md"
+                      className="absolute top-2.5 right-2.5 bg-black/60 hover:bg-black/80 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs font-bold transition-colors cursor-pointer shadow-md"
                     >
                       ✕
                     </button>
