@@ -831,17 +831,31 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                   — {selectedPost.author_name || '익명'}
                 </div>
 
-                {/* 하단 제어 영역: 다음 사람 지목 버튼 */}
+                {/* 하단 제어 영역: 마지막 발표자일 경우 '다음 질문으로 넘어가기', 아니면 '다음 사람 지목' */}
                 <div className="pt-4 border-t border-purple-100 flex items-center justify-center">
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleStartSuspensePick}
-                    className="w-full h-[52px] bg-gradient-to-r from-purple-900 via-indigo-900 to-purple-950 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-base cursor-pointer transition-all flex items-center justify-center gap-2"
-                  >
-                    <span>🎲</span>
-                    <span>다음 사람 지목</span>
-                  </motion.button>
+                  {posts.filter((p) => p.id !== selectedPost.id && !p.is_selected).length === 0 ? (
+                    /* 마지막 발표자일 때 */
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleGoToNextQuestion}
+                      className="w-full h-[52px] bg-gradient-to-r from-purple-900 via-indigo-900 to-purple-950 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-base cursor-pointer transition-all flex items-center justify-center gap-2"
+                    >
+                      <span>▶️</span>
+                      <span>다음 질문으로 넘어가기</span>
+                    </motion.button>
+                  ) : (
+                    /* 아직 발표할 사람이 남아있을 때 */
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleStartSuspensePick}
+                      className="w-full h-[52px] bg-gradient-to-r from-purple-900 via-indigo-900 to-purple-950 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-base cursor-pointer transition-all flex items-center justify-center gap-2"
+                    >
+                      <span>🎲</span>
+                      <span>다음 사람 지목</span>
+                    </motion.button>
+                  )}
                 </div>
               </motion.div>
             </motion.div>
