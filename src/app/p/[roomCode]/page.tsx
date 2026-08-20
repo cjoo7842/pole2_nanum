@@ -21,6 +21,9 @@ export default function ParticipantPage() {
 
   const [token, setToken] = useState<string>('')
   const [authorName, setAuthorName] = useState<string>('')
+  const [showNicknameModal, setShowNicknameModal] = useState<boolean>(false)
+  const [tempNickname, setTempNickname] = useState<string>('')
+
   const [content, setContent] = useState<string>('')
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -28,7 +31,7 @@ export default function ParticipantPage() {
   const [loading, setLoading] = useState<boolean>(true)
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false)
 
-  // 1. 참가자 식별 토큰 및 이전 입력한 닉네임 로드
+  // 1. 참가자 식별 토큰 및 이전 입력한 닉네임 로드 (없을 경우 닉네임 입력 모달 표시)
   useEffect(() => {
     let pToken = localStorage.getItem('participant_token')
     if (!pToken) {
@@ -40,8 +43,37 @@ export default function ParticipantPage() {
     const savedName = localStorage.getItem('participant_name')
     if (savedName) {
       setAuthorName(savedName)
+    } else {
+      setShowNicknameModal(true)
     }
   }, [])
+
+  // 1-2. Realtime Presence 참여자 실시간 등록
+  useEffect(() => {
+    if (!room?.id || !token || !authorName) return
+
+    const presenceChannel = supabase.channel(`presence-room-${room.id}`, {
+      config: {
+        presence: {
+          key: token,
+        },
+      },
+    })
+
+    presenceChannel.subscribe(async (status: string) => {
+      if (status === 'SUBSCRIBED') {
+        await presenceChannel.track({
+          token,
+          name: authorName,
+          online_at: new Date().toISOString(),
+        })
+      }
+    })
+
+    return () => {
+      supabase.removeChannel(presenceChannel)
+    }
+  }, [room?.id, token, authorName, supabase])
 
   // 이미지 압축 유틸 함수 (요구사항: 최대 가로/세로 1024px, 용량 1MB 이하)
   const compressImage = async (file: File): Promise<File> => {
@@ -405,14 +437,74 @@ export default function ParticipantPage() {
           href="https://fonts.googleapis.com/css2?family=Gamja+Flower&display=swap"
           rel="stylesheet"
         />
-        <main className="min-h-screen bg-violet-50/40 flex flex-col items-center justify-center p-6 text-center space-y-4">
+        <main className="min-h-screen bg-violet-50/40 flex flex-col items-center justify-center p-6 text-center space-y-5 font-sans relative">
           <div className="text-6xl animate-bounce">⏳</div>
           <h1 className="text-2xl sm:text-3xl font-bold text-purple-950 [font-family:'Gamja_Flower',sans-serif]">
             진행자가 나눔을 시작하기 전입니다
           </h1>
-          <p className="text-sm text-slate-600 leading-relaxed">
-            대형 화면에서 [나눔 시작하기] 버튼을 누르면<br />질문 작성 창이 자동으로 열립니다.
+          <p className="text-sm text-slate-600 leading-relaxed max-w-sm">
+            환영합니다, <strong className="text-purple-900 font-extrabold">{authorName || '참가자'}</strong>님! 🐥<br />
+            대형 화면에서 [나눔 시작하기] 버튼을 누르면 질문 작성 창이 자동으로 열립니다.
           </p>
+
+          <button
+            type="button"
+            onClick={() => {
+              setTempNickname(authorName)
+              setShowNicknameModal(true)
+            }}
+            className="text-xs font-semibold text-purple-900/70 hover:text-purple-950 underline cursor-pointer pt-2"
+          >
+            닉네임 수정하기
+          </button>
+
+          {/* 닉네임 최초 입력 / 수정 모달 */}
+          {showNicknameModal && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white/95 backdrop-blur-md rounded-[24px] p-6 sm:p-8 max-w-sm w-full space-y-5 shadow-2xl border border-purple-100 text-slate-800 text-left">
+                <div className="text-center space-y-2">
+                  <div className="text-4xl">🐥</div>
+                  <h2 className="text-xl font-black text-purple-950">나눔에 오신 것을 환영해요!</h2>
+                  <p className="text-xs text-slate-500">
+                    모임에서 사용할 이름이나 닉네임을 입력해 주세요.
+                  </p>
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    const name = tempNickname.trim()
+                    if (!name) {
+                      alert('이름이나 닉네임을 입력해 주세요!')
+                      return
+                    }
+                    setAuthorName(name)
+                    localStorage.setItem('participant_name', name)
+                    setShowNicknameModal(false)
+                  }}
+                  className="space-y-4"
+                >
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    maxLength={20}
+                    placeholder="예: 요한, 든든한 나무"
+                    value={tempNickname}
+                    onChange={(e) => setTempNickname(e.target.value)}
+                    className="w-full h-[52px] px-4 rounded-xl border border-purple-200 bg-purple-50/40 text-slate-900 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-900 focus:bg-white transition-all"
+                  />
+
+                  <button
+                    type="submit"
+                    className="w-full h-[52px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-base transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <span>입장하기 🚀</span>
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
         </main>
       </>
     )
@@ -426,7 +518,7 @@ export default function ParticipantPage() {
           href="https://fonts.googleapis.com/css2?family=Gamja+Flower&display=swap"
           rel="stylesheet"
         />
-        <main className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-6 text-center space-y-4">
+        <main className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-6 text-center space-y-4 font-sans">
           <div className="text-6xl">🎉</div>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 [font-family:'Gamja_Flower',sans-serif]">
             모든 나눔이 종료되었습니다
@@ -444,7 +536,7 @@ export default function ParticipantPage() {
         href="https://fonts.googleapis.com/css2?family=Gamja+Flower&display=swap"
         rel="stylesheet"
       />
-      <main className="min-h-screen bg-violet-50/40 p-4 sm:p-6 flex flex-col items-center justify-center text-slate-800">
+      <main className="min-h-screen bg-violet-50/40 p-4 sm:p-6 flex flex-col items-center justify-center text-slate-800 font-sans">
         <div className="w-full max-w-md bg-white/90 backdrop-blur-md rounded-[2rem] p-6 sm:p-8 shadow-2xl shadow-purple-100/80 border border-purple-100 space-y-6">
           
           {/* 질문 영역 */}
@@ -480,17 +572,25 @@ export default function ParticipantPage() {
           ) : (
             /* 작성/수정 폼 뷰 */
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label className="text-xs font-bold text-slate-600 block mb-1.5">
-                  이름 또는 닉네임 (선택)
-                </label>
-                <input
-                  type="text"
-                  placeholder="익명"
-                  value={authorName}
-                  onChange={(e) => setAuthorName(e.target.value)}
-                  className="w-full p-3.5 rounded-xl border border-purple-100 bg-purple-50/30 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-purple-900 transition-all"
-                />
+              {/* 닉네임 뱃지 표시 (입력란 숨김) */}
+              <div className="flex items-center justify-between bg-purple-50/80 p-3.5 rounded-xl border border-purple-100 text-xs">
+                <div className="flex items-center gap-2 font-bold text-purple-950">
+                  <span>🐥</span>
+                  <span>작성자:</span>
+                  <span className="text-purple-900 bg-white px-2.5 py-0.5 rounded-md border border-purple-200/80 font-extrabold text-xs">
+                    {authorName || '익명'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempNickname(authorName)
+                    setShowNicknameModal(true)
+                  }}
+                  className="text-slate-400 hover:text-purple-900 font-medium underline text-[11px] cursor-pointer"
+                >
+                  닉네임 변경
+                </button>
               </div>
 
               <div>
@@ -528,6 +628,7 @@ export default function ParticipantPage() {
                 />
                 {imagePreview && (
                   <div className="mt-3 relative w-full h-36 rounded-xl overflow-hidden bg-slate-100 border border-purple-100 group">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={imagePreview}
                       alt="미리보기"
@@ -555,6 +656,54 @@ export default function ParticipantPage() {
             </form>
           )}
         </div>
+
+        {/* 닉네임 입력 모달 (IN_PROGRESS 화면 중 닉네임 변경 시 또는 최초 입력 시) */}
+        {showNicknameModal && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white/95 backdrop-blur-md rounded-[24px] p-6 sm:p-8 max-w-sm w-full space-y-5 shadow-2xl border border-purple-100 text-slate-800">
+              <div className="text-center space-y-2">
+                <div className="text-4xl">🐥</div>
+                <h2 className="text-xl font-black text-purple-950">나눔에 오신 것을 환영해요!</h2>
+                <p className="text-xs text-slate-500">
+                  모임에서 사용할 이름이나 닉네임을 입력해 주세요.
+                </p>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const name = tempNickname.trim()
+                  if (!name) {
+                    alert('이름이나 닉네임을 입력해 주세요!')
+                    return
+                  }
+                  setAuthorName(name)
+                  localStorage.setItem('participant_name', name)
+                  setShowNicknameModal(false)
+                }}
+                className="space-y-4"
+              >
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  maxLength={20}
+                  placeholder="예: 요한, 든든한 나무"
+                  value={tempNickname}
+                  onChange={(e) => setTempNickname(e.target.value)}
+                  className="w-full h-[52px] px-4 rounded-xl border border-purple-200 bg-purple-50/40 text-slate-900 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-900 focus:bg-white transition-all"
+                />
+
+                <button
+                  type="submit"
+                  className="w-full h-[52px] bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-950 hover:to-indigo-950 text-white font-bold rounded-xl shadow-md shadow-purple-900/20 text-base transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <span>입장하기 🚀</span>
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
       </main>
     </>
   )

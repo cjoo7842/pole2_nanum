@@ -48,6 +48,8 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
   const [room, setRoom] = useState<Room | null>(null)
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
+  const [participantCount, setParticipantCount] = useState<number>(0)
+  const [isAllSubmittedBannerDismissed, setIsAllSubmittedBannerDismissed] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isStarting, setIsStarting] = useState(false)
   const [selectedPost, setSelectedPost] = useState<Post | null>(null) // 지목/선택 팝업용
@@ -55,6 +57,8 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
 
   // realtime 콜백 안에서 최신 질문 id를 참조하기 위한 ref
   const currentQuestionIdRef = useRef<string | null>(null)
+  // 비복원 추출을 위한 지목된 포스트잇 ID Set (중복 지목 방지 안전장치)
+  const pickedPostIdsRef = useRef<Set<string>>(new Set())
 
   // 폭죽 터트리기 함수
   const fireConfetti = () => {
@@ -69,6 +73,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
   const loadPostsForQuestion = async (questionId: string | null) => {
     if (!questionId) {
       setPosts([])
+      pickedPostIdsRef.current.clear()
       return
     }
     const { data: postsData } = await supabase
@@ -78,13 +83,24 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
       .eq('question_id', questionId)
       .order('created_at', { ascending: true })
 
-    setPosts(postsData || [])
+    if (postsData) {
+      postsData.forEach((p: Post) => {
+        if (p.is_selected) {
+          pickedPostIdsRef.current.add(p.id)
+        }
+      })
+      setPosts(postsData)
+    } else {
+      setPosts([])
+    }
   }
 
   // 질문 정보 + 그 질문에 해당하는 포스트잇을 함께 갱신
   const loadQuestionAndPosts = async (questionId: string | null) => {
     currentQuestionIdRef.current = questionId
     setIsAllCompletedModal(false) // 질문 변경 시 안내 상태 초기화
+    setIsAllSubmittedBannerDismissed(false) // 전원 제출 배너 상태 초기화
+    pickedPostIdsRef.current.clear()
 
     if (!questionId) {
       setCurrentQuestion(null)
@@ -102,7 +118,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     await loadPostsForQuestion(questionId)
   }
 
-  // 1. 방 데이터 및 질문/포스트잇 초기 로드
+  // 1. 방 데이터 및 질문/포스트잇 초기 로드 + Presence 접속자 수 구독
   useEffect(() => {
     const fetchRoomData = async () => {
       try {
@@ -124,6 +140,21 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     }
 
     fetchRoomData()
+
+    // 1-2. Realtime Presence 참여자 실시간 집계
+    const presenceChannel = supabase.channel(`presence-room-${roomId}`)
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState()
+        const count = Object.keys(state).length
+        setParticipantCount(count)
+        console.log('[Presence Host] 실시간 참여자 수:', count)
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(presenceChannel)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
 
@@ -343,9 +374,12 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     }
   }
 
-  // 5. [랜덤 뽑기] 비복원 추출 (다음 사람 지목 공통 처리) + 폭죽 추가
+  // 5. [랜덤 뽑기] 비복원 추출 (중복 지목 방지 안전장치 + 폭죽)
   const handleRandomPick = async () => {
-    const unselected = posts.filter((p) => !p.is_selected)
+    // 1단계: DB 및 로컬 Ref를 이중으로 대조하여 아직 한 번도 지목되지 않은 대상만 엄격히 필터링
+    const unselected = posts.filter(
+      (p) => !p.is_selected && !pickedPostIdsRef.current.has(p.id)
+    )
 
     if (unselected.length === 0) {
       if (posts.length === 0) {
@@ -358,15 +392,24 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
     }
 
     setIsAllCompletedModal(false)
+    setIsAllSubmittedBannerDismissed(true) // 전원 제출 알림 배너 닫기
+
     const randomIndex = Math.floor(Math.random() * unselected.length)
-    const picked = unselected[randomIndex]
+    const picked = { ...unselected[randomIndex], is_selected: true }
 
+    // 2단계: Ref에 즉시 등록 (추가 클릭 및 비동기 지연 시에도 중복 선택 원천 차단)
+    pickedPostIdsRef.current.add(picked.id)
+
+    // 3단계: 로컬 UI 낙관적 즉시 업데이트
     setSelectedPost(picked)
-    setPosts((prev) => prev.map((p) => (p.id === picked.id ? { ...p, is_selected: true } : p)))
+    setPosts((prev) =>
+      prev.map((p) => (p.id === picked.id ? { ...p, is_selected: true } : p))
+    )
 
-    // 지목될 때 폭죽 발사!
+    // 4단계: 폭죽 발사!
     fireConfetti()
 
+    // 5단계: Supabase DB 업데이트
     const { error } = await supabase.from('posts').update({ is_selected: true }).eq('id', picked.id)
     if (error) {
       console.error('지목 상태 저장 실패:', error)
@@ -375,7 +418,7 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-violet-50/40 flex items-center justify-center">
+      <div className="min-h-screen bg-violet-50/40 flex items-center justify-center font-sans">
         <div className="text-purple-900 font-bold text-lg animate-pulse">
           나눔 방 정보를 불러오는 중...
         </div>
@@ -426,9 +469,9 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.1, type: 'spring', bounce: 0.35 }}
-              className="bg-white/95 backdrop-blur-md p-8 sm:p-10 rounded-[20px] border border-purple-100/70 shadow-[0_2px_4px_rgba(0,0,0,0.04),0_12px_32px_rgba(88,28,135,0.08)] flex flex-col items-center text-center justify-between space-y-8"
+              className="bg-white/95 backdrop-blur-md p-8 sm:p-10 rounded-[20px] border border-purple-100/70 shadow-[0_2px_4px_rgba(0,0,0,0.04),0_12px_32px_rgba(88,28,135,0.08)] flex flex-col items-center text-center justify-between space-y-7"
             >
-              <div className="flex flex-col items-center space-y-2 w-full">
+              <div className="flex flex-col items-center space-y-3 w-full">
                 <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm uppercase tracking-wider text-purple-900 bg-purple-100 px-4 py-1.5 rounded-full border border-purple-200/80 font-bold">
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
                   모임 참여 코드
@@ -436,9 +479,25 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                 <h1 className="text-6xl sm:text-7xl lg:text-8xl font-black text-purple-900 font-mono tracking-wider drop-shadow-sm text-center">
                   {room?.room_code}
                 </h1>
+
+                {/* 실시간 참여자 수 표시 귀여운 패치 (요구사항 1) */}
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1, y: [0, -3, 0] }}
+                  transition={{
+                    y: { repeat: Infinity, duration: 2.5, ease: 'easeInOut' },
+                    scale: { duration: 0.3 },
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 text-amber-950 font-bold text-xs sm:text-sm border border-amber-200 shadow-xs"
+                >
+                  <span className="text-base">🐥</span>
+                  <span>
+                    현재 <strong className="text-purple-900 font-extrabold text-sm sm:text-base">{participantCount}</strong>명이 입장했어요!
+                  </span>
+                </motion.div>
               </div>
 
-              <div className="border-t border-dashed border-purple-100 my-2 w-full" />
+              <div className="border-t border-dashed border-purple-100 my-1 w-full" />
 
               <div className="flex flex-col items-center space-y-5 w-full">
                 <p className="text-sm sm:text-base font-semibold text-slate-600 text-center whitespace-nowrap">
@@ -466,13 +525,18 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
             <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-md px-6 py-4 border-b border-purple-100/80 shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
               <div className="max-w-7xl w-full mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="text-xs font-bold bg-purple-100 text-purple-900 px-2.5 py-0.5 rounded-full border border-purple-200/80">
                       코드: {room?.room_code}
                     </span>
                     <span className="text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                       실시간 진행 중
+                    </span>
+                    {/* 실시간 제출 현황 카운터 */}
+                    <span className="text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                      <span>💌</span>
+                      <span>제출: <strong>{posts.length}</strong> / {participantCount > 0 ? participantCount : '?'}명</span>
                     </span>
                   </div>
                   <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900">
@@ -500,6 +564,55 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
               </div>
             </header>
 
+            {/* ==================== [전원 제출 완료 알림 배너 모달] (요구사항 3) ==================== */}
+            <AnimatePresence>
+              {room?.status === 'IN_PROGRESS' &&
+                participantCount > 0 &&
+                posts.length >= participantCount &&
+                !selectedPost &&
+                !isAllSubmittedBannerDismissed &&
+                !isAllCompletedModal && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                    className="fixed top-24 left-1/2 -translate-x-1/2 z-40 max-w-xl w-[92%] bg-gradient-to-r from-purple-900 via-purple-950 to-indigo-950 text-white p-5 rounded-[22px] shadow-2xl border border-purple-300/30 flex flex-col sm:flex-row items-center justify-between gap-4 backdrop-blur-md"
+                  >
+                    <div className="flex items-center gap-3 text-center sm:text-left">
+                      <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center text-2xl shrink-0">
+                        🎉
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-base sm:text-lg">
+                          모든 사람이 제출을 완료했습니다!
+                        </h3>
+                        <p className="text-xs text-purple-200 mt-0.5">
+                          접속자 <strong className="text-amber-300 font-bold">{participantCount}명</strong> 모두 나눔을 작성했어요. 지금 나눔을 시작할까요?
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleRandomPick}
+                        className="flex-1 sm:flex-none px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-purple-950 font-black rounded-xl text-sm shadow-md transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        🎲 첫 나눔 시작하기!
+                      </motion.button>
+                      <button
+                        onClick={() => setIsAllSubmittedBannerDismissed(true)}
+                        className="text-white/60 hover:text-white text-xs p-2 rounded-lg cursor-pointer"
+                        title="닫기"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* 포스트잇 카드 목록 */}
             <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 items-start">
               <AnimatePresence>
@@ -524,10 +637,17 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                       className={`p-6 rounded-[16px] border shadow-[0_2px_4px_rgba(0,0,0,0.02),0_8px_16px_rgba(88,28,135,0.04)] flex flex-col justify-between space-y-5 h-auto cursor-pointer hover:shadow-lg transition-all ${colorClass} ${
                         post.is_selected ? 'opacity-40' : 'opacity-100'
                       }`}
-                      onClick={() => {
-                        setSelectedPost(post)
+                      onClick={async () => {
+                        pickedPostIdsRef.current.add(post.id)
+                        const updated = { ...post, is_selected: true }
+                        setSelectedPost(updated)
+                        setPosts((prev) =>
+                          prev.map((p) => (p.id === post.id ? { ...p, is_selected: true } : p))
+                        )
                         setIsAllCompletedModal(false)
+                        setIsAllSubmittedBannerDismissed(true)
                         fireConfetti()
+                        await supabase.from('posts').update({ is_selected: true }).eq('id', post.id)
                       }}
                     >
                       <div className="flex-1 flex items-center justify-center py-2">
