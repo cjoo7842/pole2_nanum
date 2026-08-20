@@ -6,6 +6,7 @@ import imageCompression from 'browser-image-compression'
 import { createClient } from '@/lib/supabase/client'
 import { RealtimePostgresUpdatePayload } from '@supabase/supabase-js'
 import { Room, Question, Post } from '@/types/database'
+import { isValidImageUrl, getPostImageUrl } from '@/lib/image'
 
 // 명세서: "멀티라인 작성(최대 300자)"
 const MAX_CONTENT_LENGTH = 300
@@ -140,7 +141,7 @@ export default function ParticipantPage() {
               setExistingPost(postData)
               if (postData.author_name) setAuthorName(postData.author_name)
               setContent(postData.content || '')
-              setImagePreview(postData.image_url || null)
+              setImagePreview(getPostImageUrl(postData.image_url) || null)
               setImageFile(null)
               setIsSubmitted(true)
             } else {
@@ -328,6 +329,10 @@ export default function ParticipantPage() {
           .from('post-images')
           .getPublicUrl(filePath)
 
+        if (!publicUrlData?.publicUrl) {
+          throw new Error('이미지 Public URL을 가져오지 못했습니다.')
+        }
+
         finalImageUrl = publicUrlData.publicUrl
 
         // 이전 이미지가 존재하고 새 이미지로 교체된 경우, 이전 Storage 파일 정리
@@ -350,8 +355,8 @@ export default function ParticipantPage() {
         return
       }
     } else if (imagePreview) {
-      // 2단계: 이미지 파일 변경은 없지만 기존 프리뷰(기존 업로드 URL)가 유지되어 있는 경우 -> 기존 image_url 그대로 보존
-      finalImageUrl = existingPost?.image_url || imagePreview
+      // 2단계: 이미지 파일 변경은 없지만 기존 프리뷰(기존 업로드 URL)가 유지되어 있는 경우 -> getPostImageUrl로 안전한 전체 URL 보장
+      finalImageUrl = getPostImageUrl(existingPost?.image_url || imagePreview)
     } else {
       // 3단계: 이미지가 없거나 사용자가 삭제한 경우
       finalImageUrl = null
@@ -626,13 +631,16 @@ export default function ParticipantPage() {
                   onChange={handleImageChange}
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-100 file:text-purple-900 hover:file:bg-purple-200 transition-all cursor-pointer"
                 />
-                {imagePreview && (
+                {imagePreview && isValidImageUrl(imagePreview) && (
                   <div className="mt-3 relative w-full h-36 rounded-xl overflow-hidden bg-slate-100 border border-purple-100 group">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={imagePreview}
-                      alt="미리보기"
+                      alt="첨부 이미지"
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none'
+                      }}
                     />
                     <button
                       type="button"

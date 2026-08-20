@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Room, Question, Post } from '@/types/database'
+import { isValidImageUrl, getPostImageUrl } from '@/lib/image'
 
 interface QuestionWithPosts extends Question {
   posts: Post[]
@@ -274,7 +275,7 @@ export default function AdminHistoryDetailPage() {
       )}
 
       {/* 원본 이미지 확대 및 다운로드 모달 */}
-      {selectedImagePost && selectedImagePost.image_url && (
+      {selectedImagePost && selectedImagePost.image_url && isValidImageUrl(getPostImageUrl(selectedImagePost.image_url)) && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white/95 backdrop-blur-md rounded-[24px] p-6 max-w-lg w-full space-y-4 shadow-2xl relative border border-purple-100">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -299,9 +300,12 @@ export default function AdminHistoryDetailPage() {
             <div className="max-h-[60vh] overflow-hidden rounded-2xl bg-slate-900/5 flex items-center justify-center border border-slate-200/60">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={selectedImagePost.image_url}
+                src={getPostImageUrl(selectedImagePost.image_url)!}
                 alt="포스트잇 첨부 이미지"
                 className="max-h-[60vh] w-auto object-contain"
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none'
+                }}
               />
             </div>
 
@@ -315,7 +319,7 @@ export default function AdminHistoryDetailPage() {
               <button
                 onClick={() =>
                   handleDownloadImage(
-                    selectedImagePost.image_url!,
+                    getPostImageUrl(selectedImagePost.image_url)!,
                     selectedImagePost.author_name || '참가자'
                   )
                 }
@@ -357,16 +361,19 @@ function PostCard({
       </div>
 
       {/* 이미지 썸네일 */}
-      {post.image_url && (
+      {post.image_url && isValidImageUrl(getPostImageUrl(post.image_url)) && (
         <div
           onClick={onImageClick}
           className="relative h-32 rounded-xl overflow-hidden bg-slate-100 border border-purple-100/60 cursor-pointer group/img"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={post.image_url}
+            src={getPostImageUrl(post.image_url)!}
             alt="첨부된 사진"
             className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-200"
+            onError={(e) => {
+              (e.currentTarget as HTMLElement).style.display = 'none'
+            }}
           />
           <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold">
             🔍 크게보기

@@ -3,6 +3,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { Post } from '@/types/database'
+import { isValidImageUrl, getPostImageUrl } from '@/lib/image'
 
 interface PostItModalProps {
   isOpen: boolean
@@ -58,12 +59,15 @@ export const PostItModal: React.FC<PostItModalProps> = ({ isOpen, post, onClose,
         </div>
 
         {/* 이미지 첨부 영역 */}
-        {post.image_url && (
+        {post.image_url && isValidImageUrl(getPostImageUrl(post.image_url)) && (
           <div className="relative w-full max-h-[45vh] rounded-2xl overflow-hidden bg-amber-100 border border-amber-200/60 shadow-inner flex items-center justify-center">
             <img
-              src={post.image_url}
+              src={getPostImageUrl(post.image_url)!}
               alt="지목된 나눔 이미지"
               className="w-full h-full object-contain max-h-[45vh] rounded-2xl"
+              onError={(e) => {
+                (e.currentTarget as HTMLElement).style.display = 'none'
+              }}
             />
           </div>
         )}

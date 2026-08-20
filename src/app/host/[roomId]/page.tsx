@@ -9,6 +9,7 @@ import {
   RealtimePostgresDeletePayload,
 } from '@supabase/supabase-js'
 import confetti from 'canvas-confetti'
+import { isValidImageUrl, getPostImageUrl } from '@/lib/image'
 
 // 타입 정의
 interface Room {
@@ -656,13 +657,16 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                         </p>
                       </div>
 
-                      {post.image_url && (
+                      {post.image_url && isValidImageUrl(getPostImageUrl(post.image_url)) && (
                         <div className="w-full">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={post.image_url}
+                            src={getPostImageUrl(post.image_url)!}
                             alt="첨부 사진"
                             className="w-full h-auto max-h-80 object-contain rounded-xl border border-black/5 bg-black/5"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = 'none'
+                            }}
                           />
                         </div>
                       )}
@@ -725,12 +729,15 @@ export default function HostRoomPage({ params }: { params: Promise<{ roomId: str
                   {selectedPost.content}
                 </p>
 
-                {selectedPost.image_url && (
+                {selectedPost.image_url && isValidImageUrl(getPostImageUrl(selectedPost.image_url)) && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={selectedPost.image_url}
+                    src={getPostImageUrl(selectedPost.image_url)!}
                     alt="첨부 이미지"
                     className="w-full h-auto max-h-80 object-contain rounded-2xl border border-purple-100 bg-slate-50"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLElement).style.display = 'none'
+                    }}
                   />
                 )}
 

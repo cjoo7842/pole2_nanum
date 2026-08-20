@@ -3,6 +3,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { Post } from '@/types/database'
+import { isValidImageUrl, getPostImageUrl } from '@/lib/image'
 
 interface PostItCardProps {
   post: Post
@@ -71,12 +72,15 @@ export const PostItCard: React.FC<PostItCardProps> = ({ post, onClick, index = 0
 
       {/* 포스트잇 본문 및 이미지 */}
       <div className="space-y-2 mt-1">
-        {post.image_url && (
+        {post.image_url && isValidImageUrl(getPostImageUrl(post.image_url)) && (
           <div className="relative w-full h-28 rounded-md overflow-hidden bg-black/5">
             <img
-              src={post.image_url}
+              src={getPostImageUrl(post.image_url)!}
               alt="포스트잇 첨부 이미지"
               className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.currentTarget as HTMLElement).style.display = 'none'
+              }}
             />
           </div>
         )}
